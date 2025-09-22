@@ -1,0 +1,97 @@
+# docker-compose.yml
+version: '3.8'
+
+services:
+  # API Service
+  api:
+    build: .
+    container_name: kainexa-api
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://kainexa:password@postgres:5432/kainexa_db
+      - REDIS_URL=redis://redis:6379
+      - ENVIRONMENT=development
+    depends_on:
+      - postgres
+      - redis
+      - qdrant
+    volumes:
+      - ./src:/app/src
+      - ./configs:/app/configs
+    networks:
+      - kainexa-network
+    restart: unless-stopped
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: kainexa-postgres
+    environment:
+      POSTGRES_USER: kainexa
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: kainexa_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - kainexa-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kainexa"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: kainexa-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - kainexa-network
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Qdrant Vector Database
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: kainexa-qdrant
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - kainexa-network
+    environment:
+      - QDRANT__SERVICE__HTTP_PORT=6333
+
+  # Nginx (Load Balancer)
+  nginx:
+    image: nginx:alpine
+    container_name: kainexa-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - api
+    networks:
+      - kainexa-network
+
+networks:
+  kainexa-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  qdrant_data:

@@ -1,0 +1,57 @@
+# pyproject.toml
+
+[tool.poetry]
+name = "kainexa-core"
+version = "0.1.0"
+description = "Kainexa AI Core Platform"
+authors = ["Kainexa Team"]
+python = "^3.11"
+
+[tool.poetry.dependencies]
+# Web Framework
+fastapi = "^0.104.0"
+uvicorn = {extras = ["standard"], version = "^0.24.0"}
+pydantic = "^2.5.0"
+pydantic-settings = "^2.0.0"
+
+# Database
+sqlalchemy = "^2.0.0"
+asyncpg = "^0.29.0"
+alembic = "^1.12.0"
+redis = "^5.0.0"
+
+# AI/ML
+transformers = "^4.35.0"
+torch = "^2.1.0"
+sentence-transformers = "^2.2.0"
+konlpy = "^0.6.0"
+kiwipiepy = "^0.17.0"
+
+# Vector Database
+qdrant-client = "^1.7.0"
+
+# Async & Utils
+asyncio = "^3.4.3"
+aiohttp = "^3.9.0"
+httpx = "^0.25.0"
+
+# Monitoring & Logging
+prometheus-client = "^0.19.0"
+structlog = "^23.2.0"
+sentry-sdk = {extras = ["fastapi"], version = "^1.38.0"}
+
+# Testing
+pytest = "^7.4.0"
+pytest-asyncio = "^0.21.0"
+pytest-cov = "^4.1.0"
+faker = "^20.0.0"
+
+# Development
+black = "^23.11.0"
+flake8 = "^6.1.0"
+mypy = "^1.7.0"
+pre-commit = "^3.5.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
