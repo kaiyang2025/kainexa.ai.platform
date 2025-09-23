@@ -36,7 +36,7 @@ services:
       - "-c"
       - "listen_addresses=*"
     ports:
-      - "5432:5432"
+      - "0.0.0.0:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres-init:/docker-entrypoint-initdb.d
