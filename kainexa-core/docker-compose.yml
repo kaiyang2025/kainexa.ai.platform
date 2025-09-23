@@ -30,11 +30,16 @@ services:
       POSTGRES_USER: kainexa
       POSTGRES_PASSWORD: password
       POSTGRES_DB: kainexa_db
+      POSTGRES_HOST_AUTH_METHOD: md5
+    command: 
+      - "postgres"
+      - "-c"
+      - "listen_addresses=*"
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./postgres-init:/docker-entrypoint-initdb.d
     networks:
       - kainexa-network
     healthcheck:
@@ -48,12 +53,12 @@ services:
     image: redis:7-alpine
     container_name: kainexa-redis
     ports:
-      - "6380:6379"
+      - "0.0.0.0:6380:6379"
     volumes:
       - redis_data:/data
     networks:
       - kainexa-network
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --bind 0.0.0.0 --protected-mode no
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -65,13 +70,15 @@ services:
     image: qdrant/qdrant:latest
     container_name: kainexa-qdrant
     ports:
-      - "6333:6333"
+      - "0.0.0.0:6333:6333"
+      - "0.0.0.0:6334:6334"
     volumes:
       - qdrant_data:/qdrant/storage
     networks:
       - kainexa-network
     environment:
       - QDRANT__SERVICE__HTTP_PORT=6333
+      - QDRANT__SERVICE__GRPC_PORT=6334
 
   # Nginx (Load Balancer)
   nginx:
