@@ -15,7 +15,7 @@ from qdrant_client.models import Distance, VectorParams, PointStruct
 from sentence_transformers import SentenceTransformer, CrossEncoder
 import tiktoken
 import structlog
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 logger = structlog.get_logger()
 
@@ -131,7 +131,7 @@ class DocumentProcessor:
                 start_char=chunk.get('start', 0),
                 end_char=chunk.get('end', 0),
                 tokens=self._token_length(chunk['text']),
-                embedding_model=self.embedding_model.get_sentence_embedding_dimension()
+                embedding_model=str(self.embedding_model.get_sentence_embedding_dimension())
             )
             
             processed_chunks.append({
