@@ -13,7 +13,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 def download_solar_model():
     """Solar-10.7B 모델 다운로드"""
     
-    model_id = "upstage/solar-10.7b-instruct"
+    model_id = "upstage/SOLAR-10.7B-Instruct-v1.0"  #upstage/solar-10.7b-instruct
     cache_dir = Path("models/solar-10.7b")
     
     print("="*60)
