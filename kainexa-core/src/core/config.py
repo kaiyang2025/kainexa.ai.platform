@@ -1,6 +1,7 @@
 # src/core/config.py
 from pydantic_settings import BaseSettings
-from typing import Optional
+from typing import Optional, List
+import os
 
 class Settings(BaseSettings):
     # Application
@@ -11,7 +12,8 @@ class Settings(BaseSettings):
     
     # API
     API_PREFIX: str = "/api/v1"
-    ALLOWED_ORIGINS: list = ["http://localhost:3000", "http://localhost:8000"]
+    # ALLOWED_ORIGINS를 문자열로 받아서 리스트로 변환
+    ALLOWED_ORIGINS: str = "http://localhost:3000", "http://localhost:8000, *"
     
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://kainexa:password@localhost:5432/kainexa_db"
@@ -28,7 +30,7 @@ class Settings(BaseSettings):
     
     # Security
     SECRET_KEY: str = "your-secret-key-here"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
     ALGORITHM: str = "HS256"
     
     # Rate Limiting
@@ -38,6 +40,12 @@ class Settings(BaseSettings):
     # Logging
     LOG_LEVEL: str = "INFO"
     SENTRY_DSN: Optional[str] = None
+    
+    @property
+    def ALLOWED_ORIGINS(self) -> List[str]:
+        """ALLOWED_ORIGINS_STR을 리스트로 변환"""
+        return [origin.strip() for origin in self.ALLOWED_ORIGINS_STR.split(",")]
+    
     
     class Config:
         env_file = ".env"
