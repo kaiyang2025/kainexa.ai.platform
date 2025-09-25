@@ -4,20 +4,23 @@
 """
 import asyncio
 from datetime import datetime, timedelta
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import random
 import json
 
 from src.models.solar_llm import SolarLLM
 from src.governance.rag_pipeline import RAGGovernance, AccessLevel
 
+
 class ProductionMonitoringAgent:
     """생산 모니터링 AI 에이전트"""
-    
-    def __init__(self):
-        self.llm = SolarLLM()
-        self.rag = RAGGovernance()
+
+    def __init__(self, rag: Optional[RAGGovernance] = None, llm: Optional[SolarLLM] = None):
+        # 라우트에서 주입되면 사용, 아니면 내부 생성(하위호환)
+        self.llm = llm or SolarLLM()
+        self.rag = rag or RAGGovernance()
         self.production_data = self._simulate_production_data()
+  
         
     def _simulate_production_data(self) -> Dict[str, Any]:
         """생산 데이터 시뮬레이션"""

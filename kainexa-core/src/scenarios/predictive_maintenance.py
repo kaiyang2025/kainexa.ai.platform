@@ -5,15 +5,18 @@
 import asyncio
 from datetime import datetime, timedelta
 import numpy as np
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from src.models.solar_llm import SolarLLM
+from src.governance.rag_pipeline import RAGGovernance
 
 class PredictiveMaintenanceAgent:
     """예측적 유지보수 AI 에이전트"""
-    
-    def __init__(self):
-        self.llm = SolarLLM()
+
+    def __init__(self, rag: Optional[RAGGovernance] = None, llm: Optional[SolarLLM] = None):
+        # rag는 현재 사용 예정/확장용으로 보관만 합니다.
+        self.rag = rag
+        self.llm = llm or SolarLLM()
         self.equipment_history = self._load_equipment_history()
         
     def _load_equipment_history(self) -> Dict:

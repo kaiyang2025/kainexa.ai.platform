@@ -5,16 +5,18 @@
 import asyncio
 from datetime import datetime, timedelta
 import numpy as np
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import random
 
 from src.models.solar_llm import SolarLLM
+from src.governance.rag_pipeline import RAGGovernance
 
 class QualityControlAgent:
     """품질 관리 AI 에이전트"""
-    
-    def __init__(self):
-        self.llm = SolarLLM()
+
+    def __init__(self, rag: Optional[RAGGovernance] = None, llm: Optional[SolarLLM] = None):
+        self.rag = rag
+        self.llm = llm or SolarLLM()
         self.quality_data = self._generate_quality_data()
         
     def _generate_quality_data(self) -> Dict:
