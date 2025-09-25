@@ -49,4 +49,7 @@ qdrant-client>=1.14,<2.0
 python-multipart>=0.0.9
 aiofiles>=23.1.0  #비동기 파일 저장
 
+accelerate>=0.34.0
+bitsandbytes>=0.41.0
+
 # 추가 package 등록

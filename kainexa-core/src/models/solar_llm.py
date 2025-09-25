@@ -1,6 +1,6 @@
 # src/models/solar_llm.py 생성
 """
-Solar-10.7B LLM 추론 엔진
+ Solar-10.7B LLM 추론 엔진
 """
 import torch
 import time
@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 from transformers import AutoModelForCausalLM, AutoTokenizer, TextStreamer
 import logging
+import importlib.util  # ← accelerate/bitsandbytes 존재 확인용
 
 logger = logging.getLogger(__name__)
 
@@ -17,11 +18,13 @@ class SolarLLM:
     def __init__(self, 
                  model_path: str = "models/solar-10.7b",
                  device_map: str = "auto",
-                 load_in_8bit: bool = True):
+                 load_in_8bit: bool = True,
+                 device: Optional[str] = None):
         
         self.model_path = Path(model_path)
         self.device_map = device_map
         self.load_in_8bit = load_in_8bit
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         
         self.model = None
         self.tokenizer = None
@@ -63,6 +66,49 @@ class SolarLLM:
             **load_kwargs
         )
         
+        # 가용 환경 점검
+        has_accelerate = importlib.util.find_spec("accelerate") is not None
+        has_bnb = importlib.util.find_spec("bitsandbytes") is not None
+        is_gpu = (self.device == "cuda" and torch.cuda.is_available())
+
+        # dtype 결정: GPU면 fp16, CPU면 fp32
+        torch_dtype = torch.float16 if is_gpu else torch.float32
+
+        # 기본 로드 인자
+        load_kwargs = {
+            "torch_dtype": torch_dtype,
+            "low_cpu_mem_usage": True,
+            "trust_remote_code": True,
+        }
+
+        # 8bit 로딩 가능 여부 판단
+        use_8bit = bool(self.load_in_8bit and is_gpu and has_bnb)
+        if self.load_in_8bit and not use_8bit:
+            if not is_gpu:
+                logger.info("8-bit loading disabled: CPU 환경에서는 8bit 로딩을 사용하지 않습니다.")
+            elif not has_bnb:
+                logger.info("8-bit loading disabled: bitsandbytes 패키지가 없습니다. (pip install bitsandbytes)")
+
+        if use_8bit:
+            load_kwargs["load_in_8bit"] = True
+
+        # device_map 처리:
+        # - accelerate가 있으면 요청된 device_map을 사용(기본 'auto')
+        # - accelerate가 없으면 device_map 인자를 아예 전달하지 않고, 단일 디바이스로 .to(self.device)
+        use_device_map = (self.device_map is not None) and has_accelerate
+        if use_device_map:
+            load_kwargs["device_map"] = self.device_map  # 보통 "auto"
+        else:
+            if self.device_map is not None and not has_accelerate:
+                logger.info("accelerate 미설치로 device_map 인자를 무시하고 단일 디바이스로 로드합니다. (pip install accelerate 권장)")
+
+        # 모델 로드
+        self.model = AutoModelForCausalLM.from_pretrained(self.model_path, **load_kwargs)
+
+        # accelerate가 없는 경우에는 명시적으로 단일 디바이스에 올림
+        if not use_device_map:
+            self.model.to(self.device)
+         
         # 평가 모드
         self.model.eval()
         
@@ -90,10 +136,13 @@ class SolarLLM:
             truncation=True,
             max_length=2048
         )
-        
-        # GPU로 이동
-        if torch.cuda.is_available():
-            inputs = {k: v.cuda() for k, v in inputs.items()}
+                
+        # 입력 텐서 디바이스 이동
+        # - accelerate로 샤딩된 경우(hf_device_map 존재 시)에는 강제 이동하지 않음
+        # - 단일 디바이스 로드인 경우에만 self.device로 이동
+        if not hasattr(self.model, "hf_device_map"):
+            if self.device == "cuda" and torch.cuda.is_available():
+                inputs = {k: v.cuda() for k, v in inputs.items()}
         
         # 스트리밍 설정
         streamer = None
