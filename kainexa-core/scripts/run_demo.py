@@ -6,7 +6,9 @@ Kainexa AI Platform 통합 데모
 import asyncio
 import httpx
 import json
+import time
 from datetime import datetime
+from httpx import Timeout, ReadTimeout, ConnectTimeout, HTTPStatusError
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
@@ -22,12 +24,53 @@ async def run_manufacturing_demo():
     console.print("[bold cyan]="*60)
     
     base_url = "http://localhost:8000"
-    
-    async with httpx.AsyncClient(timeout=30.0) as client:
+
+    # 충분한 타임아웃(콜드 스타트/모델 로딩 대비)
+    timeout = Timeout(connect=10.0, read=300.0, write=60.0, pool=10.0)
+
+    async with httpx.AsyncClient(base_url=base_url, timeout=timeout) as client:
+
+        # 간단한 재시도 래퍼
+        async def post_with_retry(url, *, params=None, json=None, retries=3, backoff=1.5):
+            last_exc = None
+            for i in range(retries):
+                try:
+                    resp = await client.post(url, params=params, json=json)
+                    # 5xx는 재시도
+                    if resp.status_code >= 500:
+                        raise HTTPStatusError("server error", request=resp.request, response=resp)
+                    return resp
+                except (ReadTimeout, ConnectTimeout, HTTPStatusError) as e:
+                    last_exc = e
+                    if i == retries - 1:
+                        raise
+                    await asyncio.sleep(backoff ** i)
+            raise last_exc
+
+        async def get_with_retry(url, *, params=None, retries=5, backoff=1.5):
+            last_exc = None
+            for i in range(retries):
+                try:
+                    resp = await client.get(url, params=params)
+                    if resp.status_code >= 500:
+                        raise HTTPStatusError("server error", request=resp.request, response=resp)
+                    return resp
+                except (ReadTimeout, ConnectTimeout, HTTPStatusError) as e:
+                    last_exc = e
+                    if i == retries - 1:
+                        raise
+                    await asyncio.sleep(backoff ** i)
+            raise last_exc
+
+        # 0. 서버 예열(헬스체크) : 모델/벡터스토어 초기화 시간 흡수
+        console.print("\n[bold green]0. 서버 예열(헬스체크)")
+        response = await get_with_retry("/api/v1/health/full")
         
         # 1. 시스템 상태 확인
         console.print("\n[bold green]1. 시스템 상태 확인")
         response = await client.get(f"{base_url}/api/v1/health/full")
+        
+        
         if response.status_code == 200:
             health = response.json()
             
@@ -45,8 +88,8 @@ async def run_manufacturing_demo():
         console.print("\n[bold green]2. 생산 모니터링 시나리오")
         console.print("[yellow]김부장: '어제 밤사 생산 현황 보고해줘'")
         
-        response = await client.post(
-            f"{base_url}/api/v1/scenarios/production",
+        response = await post_with_retry(
+            "/api/v1/scenarios/production",
             params={"query": "어제 밤사 생산 현황 보고해줘"}
         )
         
@@ -73,8 +116,8 @@ async def run_manufacturing_demo():
         console.print("\n[bold green]3. 예측적 유지보수 시나리오")
         console.print("[yellow]시스템: 'CNC_007 설비 상태 분석'")
         
-        response = await client.post(
-            f"{base_url}/api/v1/scenarios/maintenance",
+        response = await post_with_retry(
+            "/api/v1/scenarios/maintenance",
             params={"equipment_id": "CNC_007"}
         )
         
@@ -107,7 +150,7 @@ async def run_manufacturing_demo():
         console.print("\n[bold green]4. 품질 관리 시나리오")
         console.print("[yellow]박차장: '이번 주 품질 트렌드 분석해줘'")
         
-        response = await client.post(f"{base_url}/api/v1/scenarios/quality")
+        response = await post_with_retry("/api/v1/scenarios/quality")
         
         if response.status_code == 200:
             result = response.json()
@@ -145,8 +188,8 @@ async def run_manufacturing_demo():
         for q in questions[:1]:  # 시간 절약을 위해 1개만
             console.print(f"\n[yellow]질문: {q}")
             
-            response = await client.post(
-                f"{base_url}/api/v1/chat",
+            response = await post_with_retry(
+                "/api/v1/chat",
                 json={"message": q}
             )
             
@@ -167,7 +210,24 @@ async def interactive_chat():
     base_url = "http://localhost:8000"
     conversation_id = None
     
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    timeout = Timeout(connect=10.0, read=300.0, write=60.0, pool=10.0)
+    async with httpx.AsyncClient(base_url=base_url, timeout=timeout) as client:
+
+        async def post_with_retry(url, *, params=None, json=None, retries=3, backoff=1.5):
+            last_exc = None
+            for i in range(retries):
+                try:
+                    resp = await client.post(url, params=params, json=json)
+                    if resp.status_code >= 500:
+                        raise HTTPStatusError("server error", request=resp.request, response=resp)
+                    return resp
+                except (ReadTimeout, ConnectTimeout, HTTPStatusError) as e:
+                    last_exc = e
+                    if i == retries - 1:
+                        raise
+                    await asyncio.sleep(backoff ** i)
+            raise last_exc
+
         while True:
             # 사용자 입력
             user_input = console.input("[bold yellow]You>[/bold yellow] ")
@@ -178,8 +238,8 @@ async def interactive_chat():
             
             # API 호출
             try:
-                response = await client.post(
-                    f"{base_url}/api/v1/chat",
+                response = await post_with_retry(
+                    "/api/v1/chat",
                     json={
                         "message": user_input,
                         "conversation_id": conversation_id

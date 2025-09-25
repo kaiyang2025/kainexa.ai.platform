@@ -2,7 +2,7 @@
 """
 통합 API 엔드포인트
 """
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
 from typing import Dict, Any, Optional
 from datetime import datetime, timezone
 from pydantic import BaseModel, Field
@@ -197,36 +197,31 @@ async def search_documents(
     }
 
 @router.post("/scenarios/production")
-async def run_production_scenario(
-    query: str = "생산 현황 보고해줘",
-    db: AsyncSession = Depends(get_db)
-):
+async def run_production_scenario(query: str, request: Request, db: AsyncSession = Depends(get_db)):
     """생산 모니터링 시나리오"""
     
-    agent = ProductionMonitoringAgent()
+    llm = request.app.state.llm
+    agent = ProductionMonitoringAgent(llm=llm, rag=rag)
     result = await agent.analyze_production(query)
     
     return result
 
 @router.post("/scenarios/maintenance")
-async def run_maintenance_scenario(
-    equipment_id: str = "CNC_007",
-    db: AsyncSession = Depends(get_db)
-):
+async def run_maintenance_scenario(equipment_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     """예측적 유지보수 시나리오"""
     
-    agent = PredictiveMaintenanceAgent()
+    llm = request.app.state.llm
+    agent = PredictiveMaintenanceAgent(llm=llm, rag=rag)
     result = await agent.predict_failure(equipment_id)
     
     return result
 
 @router.post("/scenarios/quality")
-async def run_quality_scenario(
-    db: AsyncSession = Depends(get_db)
-):
+async def run_quality_scenario(request: Request, db: AsyncSession = Depends(get_db)):
     """품질 관리 시나리오"""
     
-    agent = QualityControlAgent()
+    llm = request.app.state.llm
+    agent = QualityControlAgent(llm=llm, rag=rag)
     result = await agent.analyze_quality()
     
     return result
