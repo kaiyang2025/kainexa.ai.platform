@@ -1,6 +1,7 @@
 """
 통합 API 서버
 """
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -8,6 +9,7 @@ import logging
 
 from src.api.routes.integrated import router as integrated_router
 from src.core.config import settings
+from src.models.solar_llm import SolarLLM
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -16,9 +18,26 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting Kainexa Integrated API")
+    
+    # ✅ LLM 싱글턴 예열 & 캐싱
+    try:
+        if not hasattr(app.state, "llm") or app.state.llm is None:
+            llm = SolarLLM()
+            llm.load()                 # 모델 1회 로드
+            app.state.llm = llm        # 상태에 캐시
+            logger.info("SolarLLM preloaded and cached in app.state.llm")
+    except Exception as e:
+        logger.exception("LLM warm-up failed (routes may lazy-init): %s", e)
+    
     yield
+    
     # Shutdown
     logger.info("Shutting down Kainexa Integrated API")
+    # (선택) 메모리 정리
+    try:
+        app.state.llm = None
+    except Exception:
+        pass
 
 app = FastAPI(
     title="Kainexa AI Platform",
@@ -31,7 +50,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=True, # ⚠ 운영에서 credentials 사용 시 '*'는 허용되지 않습니다. 필요 시 구체 origin으로 제한하세요.
     allow_methods=["*"],
     allow_headers=["*"],
 )
