@@ -45,5 +45,7 @@ soupsieve==2.8
 # 토크나이저
 tiktoken==0.11.0
 
+PyJWT[crypto]>=2.8.0 # cryptography 포함
+
 
 # 추가 package 등록

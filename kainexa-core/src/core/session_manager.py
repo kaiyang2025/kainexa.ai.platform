@@ -3,10 +3,9 @@
 """
 세션 관리자
 """
-import uuid
 import secrets
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
+from datetime import datetime, timedelta, timezone
+from typing import Optional, Dict, Any, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 import jwt
@@ -29,8 +28,9 @@ class SessionManager:
         """새 세션 생성"""
         
         # 토큰 생성
-        session_token = secrets.token_urlsafe(32)
-        expires_at = datetime.now() + timedelta(minutes=self.token_expiry)
+        session_token = secrets.token_urlsafe(32) # 256-bit 난수
+        now = datetime.now(timezone.utc)          # UTC 고정 (timezone-aware)
+        expires_at = now + timedelta(minutes=self.token_expiry)
         
         # DB에 세션 저장
         session = Session(
@@ -170,7 +170,7 @@ class ConversationManager:
                          conversation_id: str,
                          role: str,
                          content: str,
-                         metadata: Dict = None) -> Message:
+                         meta: Dict = None) -> Message:
         """메시지 추가"""
         
         # 토큰 수 계산 (간단한 추정)
@@ -180,7 +180,7 @@ class ConversationManager:
             conversation_id=conversation_id,
             role=role,
             content=content,
-            metadata=metadata or {},
+            meta=meta or {},
             tokens=int(tokens)
         )
         

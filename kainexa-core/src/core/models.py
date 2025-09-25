@@ -6,7 +6,7 @@ from sqlalchemy import Column, String, Boolean, Integer, Float, DateTime, Text, 
 from sqlalchemy.dialects.postgresql import UUID, INET
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 Base = declarative_base()
@@ -21,8 +21,8 @@ class User(Base):
     role = Column(String(50), default="user")
     department = Column(String(100))
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.now)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
     # Relationships
     sessions = relationship("Session", back_populates="user", cascade="all, delete-orphan")
@@ -37,9 +37,9 @@ class Session(Base):
     session_token = Column(String(500), unique=True, nullable=False)
     ip_address = Column(INET)
     user_agent = Column(Text)
-    expires_at = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, default=datetime.now)
-    last_activity = Column(DateTime, default=datetime.now)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    last_activity = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     
     # Relationships
     user = relationship("User", back_populates="sessions")
@@ -53,10 +53,10 @@ class Conversation(Base):
     session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE"))
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     title = Column(String(255))
-    context = Column(JSON, default={})
+    context = Column(JSON, default=dict)
     status = Column(String(50), default="active")
-    created_at = Column(DateTime, default=datetime.now)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
     # Relationships
     session = relationship("Session", back_populates="conversations")
@@ -69,10 +69,10 @@ class Message(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     conversation_id = Column(UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"))
     role = Column(String(20), nullable=False)
-    content = Column(Text, nullable=False)
-    metadata = Column(JSON, default={})
+    content = Column(Text, nullable=False)    
+    meta = Column("metadata", JSON, default=dict)  # 파이썬 속성명만 변경, DB 컬럼은 그대로 "metadata"
     tokens = Column(Integer)
-    created_at = Column(DateTime, default=datetime.now)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     
     # Relationships
     conversation = relationship("Conversation", back_populates="messages")
@@ -89,14 +89,14 @@ class KnowledgeDocument(Base):
     file_size = Column(Integer)
     checksum = Column(String(64))
     access_level = Column(String(50), default="internal")
-    tags = Column(ARRAY(Text))
-    metadata = Column(JSON, default={})
+    tags = Column(ARRAY(Text))    
+    meta = Column("metadata", JSON, default=dict)
     quality_score = Column(Float, default=0.0)
     usage_count = Column(Integer, default=0)
     created_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
-    created_at = Column(DateTime, default=datetime.now)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
-    expires_at = Column(DateTime)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    expires_at = Column(DateTime(timezone=True))
     
     # Relationships
     created_by = relationship("User", back_populates="documents")
@@ -112,9 +112,9 @@ class KnowledgeChunk(Base):
     embedding_id = Column(String(100))
     start_char = Column(Integer)
     end_char = Column(Integer)
-    tokens = Column(Integer)
-    metadata = Column(JSON, default={})
-    created_at = Column(DateTime, default=datetime.now)
+    tokens = Column(Integer)    
+    meta = Column("metadata", JSON, default=dict)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     
     # Relationships
     document = relationship("KnowledgeDocument", back_populates="chunks")
@@ -128,9 +128,9 @@ class AuditLog(Base):
     action = Column(String(100), nullable=False)
     resource_type = Column(String(50))
     resource_id = Column(String(100))
-    details = Column(JSON, default={})
+    details = Column(JSON, default=dict)
     ip_address = Column(INET)
-    created_at = Column(DateTime, default=datetime.now)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     
     # Relationships
     user = relationship("User")
