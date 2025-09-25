@@ -3,8 +3,10 @@
 통합 API 엔드포인트
 """
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from typing import Dict, Any, List, Optional
-from datetime import datetime
+from typing import Dict, Any, Optional
+from datetime import datetime, timezone
+from pydantic import BaseModel, Field
+from zoneinfo import ZoneInfo
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
@@ -15,19 +17,19 @@ from src.scenarios.production_monitoring import ProductionMonitoringAgent
 from src.scenarios.predictive_maintenance import PredictiveMaintenanceAgent
 from src.scenarios.quality_control import QualityControlAgent
 
-from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/v1", tags=["integrated"])
 
 # Pydantic 모델
 class LoginRequest(BaseModel):
-    username: str
+    email: str
     password: str
 
 class ChatRequest(BaseModel):
     message: str
     conversation_id: Optional[str] = None
-    context: Optional[Dict] = {}
+    # pydantic v2에선 mutable default도 안전하지만, 의미상 factory가 더 명시적
+    context: Dict[str, Any] = Field(default_factory=dict)
 
 class DocumentUploadResponse(BaseModel):
     document_id: str
@@ -46,8 +48,9 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
     # 간단한 인증 (실제는 암호화 필요)
     from sqlalchemy import select
     from src.core.models import User
-    
-    query = select(User).where(User.username == request.username)
+        
+    # 사용자 조회 (email 기반)
+    query = select(User).where(User.email == request.email)
     result = await db.execute(query)
     user = result.scalar_one_or_none()
     
@@ -63,7 +66,7 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
     
     return {
         "user_id": str(user.id),
-        "username": user.username,
+        "email": user.email,
         "role": user.role,
         "session": session_data
     }
@@ -82,9 +85,11 @@ async def chat(
     if request.conversation_id:
         conversation_id = request.conversation_id
     else:
+        # 세션/유저 정보가 없으면 ConversationManager가 게스트/세션을 생성하도록 맡깁니다.
         conversation = await conv_manager.create_conversation(
-            session_id="default",  # 실제는 세션에서 가져옴
-            user_id="default"
+            # 제목은 한국시간(KST) 기준으로 보기 좋게
+            title=f"대화 {datetime.now(ZoneInfo('Asia/Seoul')):%Y-%m-%d %H:%M}",
+            context=request.context
         )
         conversation_id = str(conversation.id)
     
@@ -133,7 +138,7 @@ async def chat(
         "conversation_id": conversation_id,
         "response": response_text,
         "sources": [r.get('source', '') for r in rag_results] if rag_results else [],
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
 @router.post("/documents/upload")
@@ -151,8 +156,8 @@ async def upload_document(
     metadata = DocumentMetadata(
         doc_id=f"upload_{datetime.now():%Y%m%d_%H%M%S}",
         title=file.filename,
-        source=f"upload/{file.filename}",
-        created_at=datetime.now(),
+        source=f"upload/{file.filename}",        
+        created_at=datetime.now(timezone.utc),
         access_level=AccessLevel.INTERNAL,
         tags=["upload"],
         language="ko"
@@ -258,7 +263,7 @@ async def full_health_check():
     """전체 시스템 헬스체크"""
     
     health_status = {
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "services": {}
     }
     
