@@ -1,0 +1,336 @@
+<!-- webapp/index.html - 간단한 웹 UI -->
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kainexa AI Platform</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .container {
+            width: 90%;
+            max-width: 1200px;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .main {
+            display: flex;
+            height: 600px;
+        }
+        
+        .sidebar {
+            width: 250px;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+        
+        .scenario-btn {
+            display: block;
+            width: 100%;
+            padding: 15px;
+            margin-bottom: 10px;
+            background: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .scenario-btn:hover {
+            background: #667eea;
+            color: white;
+            transform: translateX(5px);
+        }
+        
+        .content {
+            flex: 1;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .chat-area {
+            flex: 1;
+            background: #f9f9f9;
+            border-radius: 10px;
+            padding: 20px;
+            overflow-y: auto;
+            margin-bottom: 20px;
+        }
+        
+        .message {
+            margin-bottom: 15px;
+            padding: 10px 15px;
+            border-radius: 10px;
+            max-width: 70%;
+        }
+        
+        .user-message {
+            background: #667eea;
+            color: white;
+            margin-left: auto;
+        }
+        
+        .ai-message {
+            background: white;
+            border: 1px solid #ddd;
+        }
+        
+        .input-area {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .input-area input {
+            flex: 1;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            font-size: 16px;
+        }
+        
+        .input-area button {
+            padding: 15px 30px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        
+        .status {
+            padding: 10px;
+            background: #e8f5e9;
+            border-radius: 10px;
+            margin-bottom: 10px;
+            display: none;
+        }
+        
+        .status.error {
+            background: #ffebee;
+            color: #c62828;
+        }
+        
+        .status.success {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🏭 Kainexa AI Platform</h1>
+            <p>제조업 특화 AI 어시스턴트</p>
+        </div>
+        
+        <div class="main">
+            <div class="sidebar">
+                <h3>시나리오</h3>
+                <button class="scenario-btn" onclick="runScenario('production')">
+                    📊 생산 모니터링
+                </button>
+                <button class="scenario-btn" onclick="runScenario('maintenance')">
+                    🔧 예측적 유지보수
+                </button>
+                <button class="scenario-btn" onclick="runScenario('quality')">
+                    ✅ 품질 관리
+                </button>
+                <button class="scenario-btn" onclick="clearChat()">
+                    🗑️ 대화 초기화
+                </button>
+            </div>
+            
+            <div class="content">
+                <div class="status" id="status"></div>
+                
+                <div class="chat-area" id="chatArea">
+                    <div class="message ai-message">
+                        안녕하세요! Kainexa AI입니다. 제조업 관련 질문이나 시나리오를 선택해주세요.
+                    </div>
+                </div>
+                
+                <div class="input-area">
+                    <input type="text" 
+                           id="messageInput" 
+                           placeholder="메시지를 입력하세요..." 
+                           onkeypress="if(event.key=='Enter') sendMessage()">
+                    <button onclick="sendMessage()">전송</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const API_BASE = 'http://localhost:8000';
+        let conversationId = null;
+        
+        async function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const message = input.value.trim();
+            
+            if (!message) return;
+            
+            // 사용자 메시지 표시
+            addMessage(message, 'user');
+            input.value = '';
+            
+            // API 호출
+            try {
+                showStatus('처리 중...', 'info');
+                
+                const response = await fetch(`${API_BASE}/api/v1/chat`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        message: message,
+                        conversation_id: conversationId
+                    })
+                });
+                
+                const data = await response.json();
+                conversationId = data.conversation_id;
+                
+                // AI 응답 표시
+                addMessage(data.response, 'ai');
+                hideStatus();
+                
+            } catch (error) {
+                showStatus('오류: ' + error.message, 'error');
+            }
+        }
+        
+        async function runScenario(type) {
+            showStatus(`${type} 시나리오 실행 중...`, 'info');
+            
+            const endpoints = {
+                production: '/api/v1/scenarios/production',
+                maintenance: '/api/v1/scenarios/maintenance',
+                quality: '/api/v1/scenarios/quality'
+            };
+            
+            try {
+                const response = await fetch(`${API_BASE}${endpoints[type]}`, {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                
+                // 결과를 채팅창에 표시
+                let message = formatScenarioResult(type, data);
+                addMessage(message, 'ai');
+                
+                showStatus('시나리오 완료!', 'success');
+                setTimeout(hideStatus, 3000);
+                
+            } catch (error) {
+                showStatus('오류: ' + error.message, 'error');
+            }
+        }
+        
+        function formatScenarioResult(type, data) {
+            if (type === 'production') {
+                return `📊 생산 현황 분석 완료
+                
+달성률: ${data.data?.total?.achievement_rate || 0}%
+불량률: ${data.data?.total?.defect_rate || 0}%
+이슈: ${data.issues?.length || 0}건 발견
+
+${data.report || '분석 결과가 없습니다.'}`;
+            } else if (type === 'maintenance') {
+                return `🔧 예측적 유지보수 분석 완료
+                
+설비: ${data.equipment_id}
+고장 확률: ${data.failure_probability}%
+예상 시점: ${data.predicted_failure_time}
+
+권장 조치:
+${data.maintenance_schedule?.type || '정기 점검'}
+예정일: ${data.maintenance_schedule?.recommended_date || '미정'}`;
+            } else if (type === 'quality') {
+                return `✅ 품질 분석 완료
+                
+불량률: ${data.summary?.defect_rate || 0}%
+Cpk: ${data.summary?.cpk || 0}
+트렌드: ${data.summary?.trend || 'stable'}
+
+발견된 패턴:
+${data.patterns?.join('\n') || '특이사항 없음'}`;
+            }
+            return '시나리오 실행 완료';
+        }
+        
+        function addMessage(text, type) {
+            const chatArea = document.getElementById('chatArea');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}-message`;
+            messageDiv.textContent = text;
+            chatArea.appendChild(messageDiv);
+            chatArea.scrollTop = chatArea.scrollHeight;
+        }
+        
+        function clearChat() {
+            document.getElementById('chatArea').innerHTML = 
+                '<div class="message ai-message">대화가 초기화되었습니다. 새로운 대화를 시작하세요.</div>';
+            conversationId = null;
+        }
+        
+        function showStatus(message, type) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status ${type}`;
+            status.style.display = 'block';
+        }
+        
+        function hideStatus() {
+            document.getElementById('status').style.display = 'none';
+        }
+        
+        // 시스템 상태 체크
+        async function checkSystem() {
+            try {
+                const response = await fetch(`${API_BASE}/api/v1/health/full`);
+                if (response.ok) {
+                    showStatus('시스템 정상 작동 중', 'success');
+                    setTimeout(hideStatus, 3000);
+                }
+            } catch (error) {
+                showStatus('API 서버에 연결할 수 없습니다', 'error');
+            }
+        }
+        
+        // 페이지 로드시 시스템 체크
+        window.onload = checkSystem;
+    </script>
+</body>
+</html>
