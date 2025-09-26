@@ -114,7 +114,7 @@ async def chat(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    대화형 AI 어시스턴트
+    대화형 AI 어시스턴트 - 한국어 전용
     - 사용자 식별: 헤더 X-User-Email → body.user_email → demo@kainexa.local
     - 세션/대화 자동 생성
     - RAG 문맥 + LLM(한국어 전용, 그리디)
@@ -187,24 +187,57 @@ async def chat(
         context_text = "\n\n".join(context_chunks[:3])
 
         # 7) LLM 응답 (한국어 전용, 그리디)
-        _llm: SolarLLM = getattr(request.app.state, "llm", None) or llm
+        _llm = getattr(request.app.state, "llm", None) or llm
         _llm.load()
-        prompt = (
-            f"{_llm.system_prompt}\n\n"
-            f"[문맥]\n{context_text}\n\n"
-            f"[질문]\n{payload.message}\n\n"
-            f"[답변] 한국어(한글)로만 간결하게."
-        )
+        prompt = f"""당신은 한국 제조업 전문 AI입니다.
+반드시 한국어로만 답변하세요.
+영어 단어를 사용하지 마세요.
+모든 기술 용어를 한국어로 번역하세요.
+
+[관련 정보]
+{context_text}
+
+[질문]
+{payload.message}
+
+[답변] (한국어로만):"""
 
         # ✅ 한국어 강제 모드: 1차 생성부터 영문자 차단 + 한글 비율 기준 강화
         response_text = _llm.generate(
             prompt,
-            max_new_tokens=448,
-            do_sample=False,       # 그리디: 일관성/속도
-            ko_only=True,          # CJK(한자/중문) 금지
-            ko_floor=0.95,         # 한글 비율 하한 강화
-            always_block_ascii=True  # 영문자(a-zA-Z) 1차부터 금지
+            max_new_tokens=400,
+            temperature=0.1,  # 낮춰서 일관성 향상
+            do_sample=False,  # 그리디 모드
         )
+        
+        # 영어가 포함되어 있으면 후처리
+        if any(c in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ' for c in response_text):
+            # 주요 용어 번역
+            replacements = {
+                "OEE": "종합설비효율",
+                "Overall Equipment Effectiveness": "종합설비효율",
+                "Availability": "가용성",
+                "Performance": "성능",
+                "Quality": "품질",
+                "IoT": "사물인터넷",
+                "Machine Learning": "기계학습",
+                "Predictive Maintenance": "예측 정비",
+                "Smart Factory": "스마트 팩토리",
+                "factory": "공장",
+                "sensor": "센서",
+                "improve": "개선",
+                "enhance": "향상",
+                "increase": "증가",
+                "decrease": "감소",
+                "calculate": "계산",
+                "based on": "기반으로",
+                "compared to": "대비",
+            }
+            
+            for eng, kor in replacements.items():
+                response_text = response_text.replace(eng, kor)
+                response_text = response_text.replace(eng.lower(), kor)
+                response_text = response_text.replace(eng.upper(), kor)
 
         # 8) 어시스턴트 메시지 저장
         await conv_mgr.add_message(
