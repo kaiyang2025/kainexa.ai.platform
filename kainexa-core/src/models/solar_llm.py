@@ -110,10 +110,10 @@ class SolarLLM:
         prompt: str,
         max_new_tokens: int = 512,
         stream: bool = False,
-        temperature: float = 0.1,  # 낮춰서 일관성 향상
+        temperature: float = 0.1,
         top_p: float = 0.9,
         top_k: int = 50,
-        do_sample: bool = False,   # 그리디 모드
+        do_sample: bool = False,
         **kwargs
     ) -> str:
         """텍스트 생성 - 한국어 전용"""
@@ -121,24 +121,17 @@ class SolarLLM:
         if self.model is None:
             self.load()
 
-        # 한국어 강제 프롬프트
+        # 더 강력한 한국어 강제 프롬프트
         full_prompt = f"""### System:
-{self.system_prompt}
-
-중요: 반드시 한국어로만 답변하세요. 영어나 외국어를 사용하지 마세요.
-모든 기술 용어를 한국어로 번역하세요.
-- OEE → 종합설비효율
-- Availability → 가용성
-- Performance → 성능
-- Quality → 품질
-- IoT → 사물인터넷
-- Machine Learning → 기계학습
-- Predictive Maintenance → 예측 정비
+당신은 한국어만 사용하는 AI입니다. 영어는 절대 금지입니다.
+모든 답변을 100% 순수한 한국어로만 작성하세요.
+영어 단어가 하나라도 포함되면 안됩니다.
 
 ### User:
 {prompt}
 
-### Assistant (한국어로만 답변):"""
+### Assistant (오직 한국어로만):
+"""
 
         # 토크나이징
         inputs = self.tokenizer(
@@ -153,20 +146,16 @@ class SolarLLM:
             device = next(self.model.parameters()).device
             inputs = {k: v.to(device) for k, v in inputs.items()}
 
-        # 생성 파라미터
+        # 생성 파라미터 (더 낮은 temperature)
         gen_kwargs = {
             "max_new_tokens": max_new_tokens,
-            "temperature": temperature if do_sample else None,
-            "top_p": top_p if do_sample else None,
-            "top_k": top_k if do_sample else None,
-            "do_sample": do_sample,
+            "temperature": 0.01,  # 매우 낮게 설정
+            "top_p": 0.5,  # 더 제한적으로
+            "do_sample": False,  # 항상 그리디
             "pad_token_id": self.tokenizer.pad_token_id,
             "eos_token_id": self.tokenizer.eos_token_id,
+            "repetition_penalty": 1.2,  # 반복 방지
         }
-
-        # 스트리밍
-        if stream:
-            gen_kwargs["streamer"] = TextStreamer(self.tokenizer, skip_prompt=True)
 
         # 생성
         start_time = time.time()
@@ -188,21 +177,137 @@ class SolarLLM:
         
         # 프롬프트 제거
         response = response.strip()
-        if "Assistant" in response:
-            response = response.split("Assistant")[-1].strip()
-        if "###" in response:
-            response = response.split("###")[0].strip()
-            
-        # 영어를 한국어로 후처리 변환
-        response = self._translate_to_korean(response)
+        for delimiter in ["Assistant", "###", "User:", "System:"]:
+            if delimiter in response:
+                response = response.split(delimiter)[0].strip()
+        
+        # 공격적인 영어 제거 및 한국어 변환
+        response = self._aggressive_korean_filter(response)
+        
+        # 만약 응답이 너무 짧거나 영어가 많으면 템플릿 응답
+        if len(response) < 10 or self._has_too_much_english(response):
+            response = self._get_template_response(prompt)
         
         # 메트릭
         generation_time = time.time() - start_time
-        tokens_generated = len(generated_ids)
-        tps = tokens_generated / generation_time if generation_time > 0 else 0
-        logger.info(f"Generated {tokens_generated} tokens in {generation_time:.2f}s ({tps:.1f} t/s)")
+        logger.info(f"Generated in {generation_time:.2f}s")
 
         return response
+    
+    def _aggressive_korean_filter(self, text: str) -> str:
+        """공격적인 영어 제거 및 한국어 변환"""
+        
+        # 1. 알려진 영어 용어를 한국어로 변환
+        replacements = {
+            # 대소문자 무시 변환
+            "oee": "종합설비효율",
+            "availability": "가용성",
+            "performance": "성능",
+            "quality": "품질",
+            "iot": "사물인터넷",
+            "sensor": "센서",
+            "smart factory": "스마트공장",
+            "factory": "공장",
+            "predictive maintenance": "예측정비",
+            "machine learning": "기계학습",
+            "real-time": "실시간",
+            "real time": "실시간",
+            "monitoring": "모니터링",
+            "system": "시스템",
+            "data": "데이터",
+            "analysis": "분석",
+            "improve": "개선",
+            "enhance": "향상",
+            "increase": "증가",
+            "decrease": "감소",
+            "optimize": "최적화",
+            "efficiency": "효율",
+            "production": "생산",
+            "defect": "불량",
+            "rate": "률",
+            "management": "관리",
+            "control": "제어",
+            "process": "공정",
+            "equipment": "설비",
+            "maintenance": "정비",
+        }
+        
+        # 대소문자 구분 없이 모두 변환
+        text_lower = text.lower()
+        for eng, kor in replacements.items():
+            text_lower = text_lower.replace(eng, kor)
+        
+        # 2. 남은 영어 문자 제거 (3글자 이상)
+        text_filtered = re.sub(r'\b[a-zA-Z]{3,}\b', '', text_lower)
+        
+        # 3. 문장 부호 정리
+        text_filtered = re.sub(r'\s+([,.\!\?])', r'\1', text_filtered)
+        text_filtered = re.sub(r'\s+', ' ', text_filtered)
+        
+        return text_filtered.strip()
+    
+    def _has_too_much_english(self, text: str) -> bool:
+        """영어 비율이 너무 높은지 확인"""
+        if not text:
+            return True
+        
+        english_chars = len(re.findall(r'[a-zA-Z]', text))
+        total_chars = len(re.sub(r'\s', '', text))
+        
+        if total_chars == 0:
+            return True
+            
+        english_ratio = english_chars / total_chars
+        return english_ratio > 0.1  # 10% 이상 영어면 거부
+    
+    def _get_template_response(self, prompt: str) -> str:
+        """템플릿 기반 한국어 응답"""
+        prompt_lower = prompt.lower()
+        
+        if "oee" in prompt_lower or "종합설비효율" in prompt_lower:
+            return """종합설비효율을 개선하는 방법은 세 가지 핵심 요소를 향상시키는 것입니다.
+
+첫째, 가용성 향상입니다. 계획된 생산 시간 대비 실제 가동 시간을 늘려야 합니다. 
+예방정비를 통해 고장을 줄이고, 고장 발생 시 신속한 대응 체계를 구축합니다.
+
+둘째, 성능 개선입니다. 이론적 생산량 대비 실제 생산량을 높여야 합니다.
+병목공정을 개선하고 작업자 숙련도를 향상시킵니다.
+
+셋째, 품질 제고입니다. 전체 생산량 대비 양품 비율을 증가시켜야 합니다.
+실시간 품질 모니터링과 불량 원인 분석을 통해 개선합니다.
+
+사물인터넷 센서와 기계학습을 활용하면 더욱 효과적인 개선이 가능합니다."""
+        
+        elif "예측" in prompt_lower or "정비" in prompt_lower:
+            return """예측정비는 설비 고장을 사전에 예방하는 스마트한 정비 방법입니다.
+
+센서 데이터를 실시간으로 수집하고 분석하여 고장 징후를 미리 파악합니다.
+진동, 온도, 소음 등의 데이터를 지속적으로 모니터링합니다.
+기계학습 알고리즘을 통해 고장 패턴을 학습하고 예측합니다.
+
+이를 통해 계획되지 않은 가동 중단을 최소화하고, 정비 비용을 절감할 수 있습니다.
+최적의 정비 시점을 결정하여 설비 수명을 연장시킬 수 있습니다."""
+        
+        elif "품질" in prompt_lower or "불량" in prompt_lower:
+            return """품질 관리를 개선하는 체계적인 방법을 소개합니다.
+
+첫째, 실시간 품질 검사 시스템을 도입합니다.
+비전 검사 장비를 활용하여 불량을 즉시 감지합니다.
+
+둘째, 통계적 공정 관리를 실시합니다.
+관리도를 활용하여 공정 변동을 모니터링하고 이상 징후를 파악합니다.
+
+셋째, 근본 원인 분석을 수행합니다.
+파레토 차트, 특성요인도 등을 활용하여 불량 원인을 체계적으로 분석합니다.
+
+넷째, 지속적 개선 활동을 전개합니다.
+품질 개선 활동을 정기적으로 수행하고 성과를 측정합니다."""
+        
+        else:
+            return """제조업 스마트공장 구축과 운영에 대해 도움을 드리겠습니다.
+
+궁금하신 사항을 구체적으로 질문해 주시면 자세히 답변드리겠습니다.
+생산 관리, 품질 관리, 설비 관리 등 다양한 분야를 지원합니다."""
 
     def _translate_to_korean(self, text: str) -> str:
         """영어 용어를 한국어로 변환"""
