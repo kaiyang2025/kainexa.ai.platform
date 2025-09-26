@@ -290,12 +290,17 @@ class SolarLLM:
 
         gen_kwargs = {
             "max_new_tokens": max_new_tokens,
-            "do_sample": do_sample,          # 기본: 그리디
-            "top_p": top_p,
+            "do_sample": do_sample,          # 기본: 그리디            
             "pad_token_id": self.tokenizer.pad_token_id,
             "eos_token_id": self.tokenizer.eos_token_id,
             "repetition_penalty": float(os.getenv("KXN_REP_PENALTY", "1.2")),
         }
+        if do_sample:
+            gen_kwargs.update({
+            "top_p": top_p,
+            "top_k": top_k,
+            "temperature": temperature,
+        })
 
         # 한국어 외 스크립트 토큰 금지
         if ko_only:
