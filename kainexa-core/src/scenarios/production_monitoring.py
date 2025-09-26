@@ -5,6 +5,7 @@
 import asyncio
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
+import re
 import random
 import json
 
@@ -91,28 +92,44 @@ class ProductionMonitoringAgent:
         
         prompt = f"""
 사용자 질문: {user_query}
+ 
+ 생산 데이터:
+ - 계획 생산량: {data['total']['planned']}개
+ - 실제 생산량: {data['total']['actual']}개
+ - 달성률: {data['total']['achievement_rate']}%
+ - 불량품: {data['total']['defects']}개 (불량률: {data['total']['defect_rate']}%)
+ 
+ 주요 이슈:
+ {json.dumps(issues, ensure_ascii=False, indent=2)}
+ 
+ 관련 지식:
+ {rag_context}
 
-생산 데이터:
-- 계획 생산량: {data['total']['planned']}개
-- 실제 생산량: {data['total']['actual']}개
-- 달성률: {data['total']['achievement_rate']}%
-- 불량품: {data['total']['defects']}개 (불량률: {data['total']['defect_rate']}%)
-
-주요 이슈:
-{json.dumps(issues, ensure_ascii=False, indent=2)}
-
-관련 지식:
-{rag_context}
-
-위 정보를 바탕으로 생산 관리자에게 보고할 내용을 작성하세요.
+위 정보를 바탕으로 생산 관리자에게 보고할 내용을 **한국어로만** 작성하세요.
 포함 내용: 현황 요약, 주요 이슈, 권장 조치사항
 """
         
+        # 안정적 보고서를 위한 파라미터(토큰 여유 + 낮은 온도)
         response = self.llm.generate(
             prompt,
             max_new_tokens=768,
-            temperature=0.5
+            temperature=0.4,
+            top_p=0.9,
         )
+        # 간단 후처리(공백/괄호 주변 정리 등)
+        response = self._postprocess_korean(response)
+        # 한국어 비율이 낮으면 한국어만 사용해 재작성(1회)
+        if self._korean_ratio(response) < 0.7:
+            rewrite_prompt = (
+                "다음 초안을 자연스러운 한국어 보고서로만(외국어 혼용 금지) "
+                "형식과 내용 흐름을 유지하여 다시 작성하세요:\n\n" + response
+            )
+            response = self.llm.generate(
+                rewrite_prompt,
+                max_new_tokens=640,
+                temperature=0.3,
+                top_p=0.9,
+            )
         
         return {
             "timestamp": datetime.now().isoformat(),
@@ -121,6 +138,25 @@ class ProductionMonitoringAgent:
             "report": response,
             "recommendations": self._generate_recommendations(issues)
         }
+               
+    
+    # --- helpers ---------------------------------------------------------
+    def _postprocess_korean(self, text: str) -> str:
+        """CJK(한중일) 사이 불필요 공백, 괄호 주변 과다 공백 등 정리"""
+        # 한중일 문자 사이 공백 제거
+        text = re.sub(r'(?<=[\u4E00-\u9FFF\uAC00-\uD7A3])\s+(?=[\u4E00-\u9FFF\uAC00-\uD7A3])', '', text)
+        # 괄호 앞뒤 공백 축소
+        text = re.sub(r'\s+([)\]])', r'\1', text)
+        text = re.sub(r'([(\[])\s+', r'\1', text)
+        return text.strip()
+
+    def _korean_ratio(self, text: str) -> float:
+        """텍스트 중 한글(가~힣) 비중 계산"""
+        chars = [c for c in text if not c.isspace()]
+        if not chars:
+            return 1.0
+        hangul = sum(1 for c in chars if '\uAC00' <= c <= '\uD7A3')
+        return hangul / len(chars)
     
     def _detect_anomalies(self, data: Dict) -> List[Dict]:
         """이상 감지"""
