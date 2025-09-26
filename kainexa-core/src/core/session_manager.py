@@ -9,6 +9,7 @@ from typing import Optional, Dict, Any, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 import jwt
+import re
 
 from src.core.models import User, Session, Conversation, Message
 from src.core.config import settings
