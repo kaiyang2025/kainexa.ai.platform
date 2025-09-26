@@ -61,7 +61,7 @@ class SessionManager:
         query = select(Session).where(
             and_(
                 Session.session_token == session_token,
-                Session.expires_at > datetime.now()
+                Session.expires_at > datetime.now(timezone.utc)
             )
         )
         
@@ -70,7 +70,7 @@ class SessionManager:
         
         if session:
             # 마지막 활동 시간 업데이트
-            session.last_activity = datetime.now()
+            session.last_activity = datetime.now(timezone.utc)
             await self.db.commit()
         
         return session
@@ -88,8 +88,8 @@ class SessionManager:
         session = result.scalar_one_or_none()
         
         if session:
-            session.expires_at = datetime.now() + timedelta(minutes=minutes)
-            session.last_activity = datetime.now()
+            session.expires_at = datetime.now(timezone.utc) + timedelta(minutes=minutes)
+            session.last_activity = datetime.now(timezone.utc)
             await self.db.commit()
         
         return session
@@ -108,7 +108,7 @@ class SessionManager:
     async def cleanup_expired_sessions(self):
         """만료된 세션 정리"""
         
-        query = select(Session).where(Session.expires_at <= datetime.now())
+        query = select(Session).where(Session.expires_at <= datetime.now(timezone.utc))
         result = await self.db.execute(query)
         expired_sessions = result.scalars().all()
         
@@ -126,7 +126,7 @@ class SessionManager:
             "session_id": str(session.id),
             "user_id": str(session.user_id),
             "exp": session.expires_at,
-            "iat": datetime.now()
+            "iat": datetime.now(timezone.utc)
         }
         
         return jwt.encode(payload, self.secret_key, algorithm="HS256")
@@ -164,6 +164,22 @@ class SessionManager:
         user = await self.get_or_create_user(user_email)
         session = await self.get_or_create_session(user.id)
         return user, session
+    
+    async def create_user(self, email: str, name: str | None = None, role: str = "user") -> User:
+       """
+       신규 사용자 생성 (간단 데모용)
+       - 실제 운영에선 비밀번호/권한/중복체크/트랜잭션 관리 필요
+       """
+       user = User(
+           email=email,
+           name=name or (email.split("@")[0] if "@" in email else email),
+           role=role,
+       )
+       self.db.add(user)
+       await self.db.commit()
+       await self.db.refresh(user)
+       return user
+
 
 class ConversationManager:
     """대화 관리"""
@@ -180,7 +196,7 @@ class ConversationManager:
         conversation = Conversation(
             session_id=session_id,
             user_id=user_id,
-            title=title or f"대화 {datetime.now():%Y-%m-%d %H:%M}"
+            title=title or f"대화 {datetime.now(timezone.utc):%Y-%m-%d %H:%M}"
         )
         
         self.db.add(conversation)
@@ -215,7 +231,7 @@ class ConversationManager:
         conversation = result.scalar_one_or_none()
         
         if conversation:
-            conversation.updated_at = datetime.now()
+            conversation.updated_at = datetime.now(timezone.utc)
         
         await self.db.commit()
         await self.db.refresh(message)
