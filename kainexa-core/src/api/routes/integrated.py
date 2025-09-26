@@ -4,6 +4,7 @@
 """
 
 # 상단 import 보강
+from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
 import traceback
 from typing import Dict, Any, Optional
@@ -22,6 +23,36 @@ from src.scenarios.quality_control import QualityControlAgent
 
 
 router = APIRouter(prefix="/api/v1", tags=["integrated"])
+
+def _ensure_uuid(val) -> UUID:
+    try:
+        return UUID(str(val))
+    except Exception:
+        raise HTTPException(status_code=500, detail=f"Invalid UUID value: {val!r}")
+
+def _entity_id(entity, *keys) -> UUID:
+    """
+    ORM 객체 또는 dict 모두에서 안전하게 id를 뽑아 UUID로 변환.
+    keys가 주어지면 우선순위대로 dict 키를 확인.
+    """
+    if entity is None:
+        raise HTTPException(status_code=500, detail="Entity is None (cannot extract id)")
+
+    # dict인 경우
+    if isinstance(entity, dict):
+        probe_keys = keys or ("id",)
+        for k in probe_keys:
+            v = entity.get(k)
+            if v:
+                return _ensure_uuid(v)
+        raise HTTPException(status_code=500, detail=f"Cannot resolve id from dict; tried keys={probe_keys}")
+
+    # ORM 객체인 경우
+    if hasattr(entity, "id") and getattr(entity, "id"):
+        return _ensure_uuid(getattr(entity, "id"))
+
+    # 다른 형태(문자열 등)면 그대로 시도
+    return _ensure_uuid(entity)
 
 # Pydantic 모델
 class LoginRequest(BaseModel):
@@ -122,11 +153,11 @@ async def chat(
         # 4) 대화 확보/생성
         if payload.conversation_id:
             conversation_id = payload.conversation_id
-        else:
+        else:            
             title = f"대화 {datetime.now(ZoneInfo('Asia/Seoul')):%Y-%m-%d %H:%M}"
             conversation = await conv_mgr.create_conversation(
-                session_id=session.id,
-                user_id=user.id,
+                session_id=_entity_id(session, "id", "session_id"),
+                user_id=_entity_id(user, "id", "user_id"),
                 title=title,
             )
             conversation_id = str(conversation.id)
