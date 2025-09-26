@@ -167,16 +167,25 @@ class SessionManager:
     
     async def create_user(self, email: str, role: str = "user") -> User:
         """
-        User 모델 정의에 맞춰 안전하게 생성.
-        - name 컬럼이 없으므로 name은 전달하지 않음
-        - role 컬럼이 있을 때만 기본값 'user'를 세팅
+        - username NOT NULL 대응: email에서 username 생성
+        - 모델에 존재하는 컬럼만 안전하게 세팅
         """
-        # SQLAlchemy 모델에 컬럼이 있는지 방어적으로 확인
+        # 1) username 생성 (email의 @앞부분 → 소문자/영문숫자._- 만 허용, 100자 제한)
+        base = email.split("@")[0] if "@" in email else email
+        candidate = re.sub(r"[^a-zA-Z0-9._-]", "_", base).lower()[:100] or "user"
+
         kwargs = {"email": email}
+        if hasattr(User, "username"):
+            kwargs["username"] = candidate
+        if hasattr(User, "full_name"):
+            kwargs["full_name"] = base  # 풀네임은 간단히 base로
         if hasattr(User, "role"):
             kwargs["role"] = role
+        if hasattr(User, "is_active"):
+            kwargs["is_active"] = True
 
         user = User(**kwargs)
+       
         self.db.add(user)
         await self.db.commit()
         await self.db.refresh(user)
