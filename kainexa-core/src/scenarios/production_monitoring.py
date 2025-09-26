@@ -110,8 +110,8 @@ class ProductionMonitoringAgent:
         
         response = self.llm.generate(
             prompt,
-            max_new_tokens=400,
-            temperature=0.3
+            max_new_tokens=768,
+            temperature=0.5
         )
         
         return {

@@ -110,8 +110,8 @@ AI 비전 검사 성과:
         
         response = self.llm.generate(
             prompt,
-            max_new_tokens=500,
-            temperature=0.3
+            max_new_tokens=768,
+            temperature=0.5
         )
         
         # 5. 개선 계획 수립
