@@ -148,7 +148,7 @@ class SessionManager:
         res = await self.db.execute(select(User).where(User.email == email))
         user = res.scalar_one_or_none()
         if user is None:
-            user = await self.create_user(email=email, name=email.split("@")[0] if "@" in email else email)
+            user = await self.create_user(email=email)
         return user
 
     async def get_or_create_session(self, user_id):
@@ -165,21 +165,23 @@ class SessionManager:
         session = await self.get_or_create_session(user.id)
         return user, session
     
-    async def create_user(self, email: str, name: str | None = None, role: str = "user") -> User:
-       """
-       신규 사용자 생성 (간단 데모용)
-       - 실제 운영에선 비밀번호/권한/중복체크/트랜잭션 관리 필요
-       """
-       user = User(
-           email=email,
-           name=name or (email.split("@")[0] if "@" in email else email),
-           role=role,
-       )
-       self.db.add(user)
-       await self.db.commit()
-       await self.db.refresh(user)
-       return user
+    async def create_user(self, email: str, role: str = "user") -> User:
+        """
+        User 모델 정의에 맞춰 안전하게 생성.
+        - name 컬럼이 없으므로 name은 전달하지 않음
+        - role 컬럼이 있을 때만 기본값 'user'를 세팅
+        """
+        # SQLAlchemy 모델에 컬럼이 있는지 방어적으로 확인
+        kwargs = {"email": email}
+        if hasattr(User, "role"):
+            kwargs["role"] = role
 
+        user = User(**kwargs)
+        self.db.add(user)
+        await self.db.commit()
+        await self.db.refresh(user)
+        return user
+    
 
 class ConversationManager:
     """대화 관리"""

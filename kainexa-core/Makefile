@@ -58,17 +58,17 @@ $(VENV)/bin/activate:
 
 # Docker 서비스 관리
 docker-up:
-	docker-compose up -d postgres redis qdrant
+	docker compose up -d postgres redis qdrant
 	@echo "Waiting for services to be ready..."
 	@sleep 5
 	@echo "Core services are up!"
 
 docker-down:
-	docker-compose down
+	docker compose down
 
 # 모니터링 스택
 monitor-up:
-	docker-compose -f docker-compose.monitoring.yml up -d
+	docker compose -f docker-compose.monitoring.yml up -d
 	@echo "Monitoring stack starting..."
 	@sleep 10
 	@echo "Monitoring available at:"

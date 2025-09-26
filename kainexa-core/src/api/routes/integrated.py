@@ -112,7 +112,7 @@ async def chat(
             result = await db.execute(select(User).where(User.email == user_email))
             user = result.scalar_one_or_none()
             if user is None:
-                user = await sess_mgr.create_user(email=user_email, name=user_email.split("@")[0] if "@" in user_email else user_email)
+                user = await sess_mgr.create_user(email=user_email)
             result = await db.execute(select(Session).where(Session.user_id == user.id))
             session = result.scalar_one_or_none()
             if session is None:
