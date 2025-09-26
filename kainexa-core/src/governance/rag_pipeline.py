@@ -13,6 +13,7 @@ import numpy as np
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 from sentence_transformers import SentenceTransformer, CrossEncoder
+import os
 import tiktoken
 import structlog
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -84,7 +85,12 @@ class DocumentProcessor:
     """문서 처리 파이프라인"""
     
     def __init__(self, embedding_model_name: str = "sentence-transformers/xlm-r-bert-base-nli-stsb-mean-tokens"):
-        self.embedding_model = SentenceTransformer(embedding_model_name)
+        
+         # ✅ 임베딩 모델은 기본 CPU로 구동 (env로 변경 가능)
+        emb_device = os.getenv("KXN_EMB_DEVICE", "cpu")  # ex) "cpu" | "cuda:0"
+        self.embedding_model = SentenceTransformer(embedding_model_name, device=emb_device)
+        # 배치 사이즈도 환경변수로 제어
+        self._emb_batch = int(os.getenv("KXN_EMB_BATCH", "16"))        
         self.tokenizer = tiktoken.encoding_for_model("gpt-3.5-turbo")
         
         # 청킹 전략
@@ -195,7 +201,11 @@ class DocumentProcessor:
     async def _create_embeddings(self, chunks: List[Dict[str, Any]]) -> List[np.ndarray]:
         """임베딩 생성"""
         texts = [chunk['text'] for chunk in chunks]
-        embeddings = self.embedding_model.encode(texts, show_progress_bar=False)
+        embeddings = self.embedding_model.encode(
+            texts,
+            show_progress_bar=False,
+            batch_size=self._emb_batch
+        )        
         return embeddings
     
     async def _assess_quality(self, content: str, chunks: List[Dict[str, Any]]) -> float:
@@ -235,7 +245,13 @@ class RAGGovernance:
         self.processor = DocumentProcessor()
         
         # Cross-Encoder for reranking
-        self.reranker = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
+        # ✅ 리랭커는 기본 CPU로 구동 (env로 변경 가능)
+        rerank_device = os.getenv("KXN_RERANK_DEVICE", "cpu")  # ex) "cpu" | "cuda:0"
+        self.reranker = CrossEncoder(
+            'cross-encoder/ms-marco-MiniLM-L-6-v2',
+            max_length=512,
+            device=rerank_device
+        )
         
         # 거버넌스 정책
         self.policies = {
@@ -418,7 +434,13 @@ class RAGGovernance:
         pairs = [[query, r['text']] for r in results]
         
         # Re-ranking 점수 계산
-        rerank_scores = self.reranker.predict(pairs)
+        # ✅ 배치 사이즈/프로그레스바 제어
+        rerank_batch = int(os.getenv("KXN_RERANK_BATCH", "16"))
+        rerank_scores = self.reranker.predict(
+            pairs,
+            batch_size=rerank_batch,
+            show_progress_bar=False
+        )  
         
         # 원본 점수와 결합 (0.7 * vector_score + 0.3 * rerank_score)
         for i, result in enumerate(results):
