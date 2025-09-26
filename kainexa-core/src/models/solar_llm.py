@@ -106,13 +106,15 @@ class SolarLLM:
         use_device_map = (self.device_map is not None) and has_accelerate
         if use_device_map:
             # 각 GPU 사용 상한(기본 85%) 및 CPU 오프로딩 한도
-            max_memory: Dict[str, str] = {}
+            # ✅ accelerate는 정수 키(0,1,...) 또는 'cpu'/'mps'/'disk'만 인식함
+            from typing import Union
+            max_memory: Dict[Union[int, str], str] = {}
             if torch.cuda.is_available():
                 frac = float(os.getenv("KXN_GPU_MEM_FRACTION", "0.85"))
                 for i in range(torch.cuda.device_count()):
                     total = torch.cuda.get_device_properties(i).total_memory
-                    limit = max(1, int(total * frac) // (1024 ** 3))  # GiB 단위, 최소 1GiB
-                    max_memory[f"cuda:{i}"] = f"{limit}GiB"
+                    limit_gib = max(1, int(total * frac) // (1024 ** 3))  # 최소 1GiB
+                    max_memory[i] = f"{limit_gib}GiB"  # ← 정수 키!
             max_memory["cpu"] = os.getenv("KXN_CPU_OFFLOAD_MEM", "48GiB")
 
             load_kwargs["device_map"] = self.device_map  # 보통 "auto"
