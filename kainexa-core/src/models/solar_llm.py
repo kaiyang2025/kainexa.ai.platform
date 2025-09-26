@@ -162,26 +162,29 @@ class SolarLLM:
         )
         prompt_len = inputs["input_ids"].shape[1]
 
-        # 입력 텐서 디바이스 이동
-        # - 샤딩(hf_device_map 존재)인 경우: 단일 GPU만 사용 중이면 그쪽으로 이동
-        # - 다중 장치면 Accelerate가 처리하므로 이동하지 않음
-        # - 단일 디바이스 모델이면 self.device 로 이동
+        # 입력 텐서 디바이스 이동(경고 제거용, 안전 로직)
+        # 1) 모델이 샤딩되어 있어도 첫 파라미터의 디바이스를 기준으로 이동
+        # 2) hf_device_map이 단일 CUDA 디바이스면 그 디바이스로 이동
         target_device = None
+        try:
+            # 가장 확실한 기준: 실제 파라미터가 올라간 디바이스
+            param_dev = next(self.model.parameters()).device
+            target_device = param_dev
+        except StopIteration:
+            target_device = None
+
         if hasattr(self.model, "hf_device_map"):
-            devices = {
+            unique_devs = {
                 str(d)
                 for d in set(self.model.hf_device_map.values())
                 if str(d) not in {"cpu", "disk", "meta", "offload"}
             }
-            if len(devices) == 1:
-                only = list(devices)[0]
-                if only.startswith("cuda"):
-                    target_device = torch.device(only)
-        else:
-            if self.device == "cuda" and torch.cuda.is_available():
-                target_device = torch.device("cuda")
+            cuda_devs = [d for d in unique_devs if d.startswith("cuda")]
+            # 샤딩이어도 단일 CUDA라면 그쪽으로 이동해 경고 제거
+            if len(cuda_devs) == 1:
+                target_device = torch.device(cuda_devs[0])
 
-        if target_device is not None:
+        if target_device is not None and str(target_device).startswith("cuda"):
             inputs = {k: v.to(target_device) for k, v in inputs.items()}
 
         # 스트리밍
