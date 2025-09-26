@@ -2,7 +2,10 @@
 """
 통합 API 엔드포인트
 """
+
+# 상단 import 보강
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
+import traceback
 from typing import Dict, Any, Optional
 from datetime import datetime, timezone
 from pydantic import BaseModel, Field
@@ -30,6 +33,7 @@ class ChatRequest(BaseModel):
     conversation_id: Optional[str] = None
     # pydantic v2에선 mutable default도 안전하지만, 의미상 factory가 더 명시적
     context: Dict[str, Any] = Field(default_factory=dict)
+    user_email: Optional[str] = None
 
 class DocumentUploadResponse(BaseModel):
     document_id: str
@@ -71,75 +75,122 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
         "session": session_data
     }
 
+
 @router.post("/chat")
 async def chat(
-    request: ChatRequest,
-    db: AsyncSession = Depends(get_db)
+    payload: ChatRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
 ):
-    """채팅 엔드포인트"""
-    
-    # 대화 관리자
-    conv_manager = ConversationManager(db)
-    
-    # 대화 생성 또는 조회
-    if request.conversation_id:
-        conversation_id = request.conversation_id
-    else:
-        # 세션/유저 정보가 없으면 ConversationManager가 게스트/세션을 생성하도록 맡깁니다.
-        conversation = await conv_manager.create_conversation(
-            # 제목은 한국시간(KST) 기준으로 보기 좋게
-            title=f"대화 {datetime.now(ZoneInfo('Asia/Seoul')):%Y-%m-%d %H:%M}",
-            context=request.context
+    """
+    대화형 AI 어시스턴트
+    - 사용자 식별: 헤더 X-User-Email → body.user_email → demo@kainexa.local
+    - 세션/대화 자동 생성
+    - RAG 문맥 + LLM(한국어 전용, 그리디)
+    - 실패시 JSON 500(detail 포함)
+    """
+    try:
+        # 1) 사용자 식별
+        user_email = (
+            request.headers.get("X-User-Email")
+            or (payload.user_email or "").strip()
+            or "demo@kainexa.local"
         )
-        conversation_id = str(conversation.id)
-    
-    # 사용자 메시지 저장
-    await conv_manager.add_message(
-        conversation_id=conversation_id,
-        role="user",
-        content=request.message
-    )
-    
-    # RAG 검색
-    rag_results = await rag.retrieve(
-        query=request.message,
-        k=3,
-        user_access_level=AccessLevel.INTERNAL
-    )
-    
-    # LLM 응답 생성
-    llm.load()
-    
-    # 프롬프트 구성
-    prompt = f"사용자: {request.message}\n\n"
-    
-    if rag_results:
-        prompt += "관련 정보:\n"
-        for result in rag_results[:2]:
-            prompt += f"- {result['text'][:200]}...\n"
-        prompt += "\n"
-    
-    prompt += "응답:"
-    
-    response_text = llm.generate(
-        prompt,
-        max_new_tokens=300,
-        temperature=0.7
-    )
-    
-    # 어시스턴트 메시지 저장
-    await conv_manager.add_message(
-        conversation_id=conversation_id,
-        role="assistant",
-        content=response_text
-    )
-    
-    return {
-        "conversation_id": conversation_id,
-        "response": response_text,
-        "sources": [r.get('source', '') for r in rag_results] if rag_results else [],
-        "timestamp": datetime.now(timezone.utc).isoformat()
-    }
+
+        # 2) 매니저
+        sess_mgr = SessionManager(db)
+        conv_mgr = ConversationManager(db)
+
+        # 3) 사용자/세션 확보 (ensure_*가 있다면 사용, 없으면 fallback)
+        if hasattr(sess_mgr, "ensure_user_and_session"):
+            user, session = await sess_mgr.ensure_user_and_session(user_email=user_email)
+        else:
+            # --- fallback 시작: 프로젝트에 맞춰 이미 존재하면 생략 ---
+            from sqlalchemy import select
+            from src.core.models import User, Session
+
+            result = await db.execute(select(User).where(User.email == user_email))
+            user = result.scalar_one_or_none()
+            if user is None:
+                user = await sess_mgr.create_user(email=user_email, name=user_email.split("@")[0] if "@" in user_email else user_email)
+            result = await db.execute(select(Session).where(Session.user_id == user.id))
+            session = result.scalar_one_or_none()
+            if session is None:
+                session = await sess_mgr.create_session(user_id=user.id)
+            # --- fallback 끝 ---
+
+        # 4) 대화 확보/생성
+        if payload.conversation_id:
+            conversation_id = payload.conversation_id
+        else:
+            title = f"대화 {datetime.now(ZoneInfo('Asia/Seoul')):%Y-%m-%d %H:%M}"
+            conversation = await conv_mgr.create_conversation(
+                session_id=session.id,
+                user_id=user.id,
+                title=title,
+            )
+            conversation_id = str(conversation.id)
+
+        # 5) 사용자 메시지 저장
+        await conv_mgr.add_message(
+            conversation_id=conversation_id,
+            role="user",
+            content=payload.message,
+        )
+
+        # 6) RAG 검색 (문맥)
+        try:
+            rag_results = await rag.retrieve(
+                query=payload.message,
+                k=3,
+                user_access_level=AccessLevel.INTERNAL,
+            )
+        except Exception:
+            rag_results = []
+
+        context_chunks = []
+        for r in rag_results or []:
+            txt = r.get("text") or r.get("content") or ""
+            if txt:
+                context_chunks.append(txt.strip())
+        context_text = "\n\n".join(context_chunks[:3])
+
+        # 7) LLM 응답 (한국어 전용, 그리디)
+        _llm: SolarLLM = getattr(request.app.state, "llm", None) or llm
+        _llm.load()
+        prompt = (
+            f"{_llm.system_prompt}\n\n"
+            f"[문맥]\n{context_text}\n\n"
+            f"[질문]\n{payload.message}\n\n"
+            f"[답변] 한국어(한글)로만 간결하게."
+        )
+
+        response_text = _llm.generate(
+            prompt,
+            max_new_tokens=448,
+            do_sample=False,  # 그리디
+            ko_only=True,     # 한자/중문 토큰 금지
+        )
+
+        # 8) 어시스턴트 메시지 저장
+        await conv_mgr.add_message(
+            conversation_id=conversation_id,
+            role="assistant",
+            content=response_text,
+        )
+
+        return {
+            "conversation_id": conversation_id,
+            "response": response_text,
+            "sources": [r.get("source", "") for r in (rag_results or [])],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        tb = traceback.format_exc()
+        raise HTTPException(status_code=500, detail={"error": str(e), "traceback": tb[-2000:]})
 
 @router.post("/documents/upload")
 async def upload_document(

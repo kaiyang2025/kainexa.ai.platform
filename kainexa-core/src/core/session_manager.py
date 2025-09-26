@@ -141,6 +141,29 @@ class SessionManager:
             return None
         except jwt.InvalidTokenError:
             return None
+    
+    async def get_or_create_user(self, email: str):
+        from sqlalchemy import select
+        from src.core.models import User
+        res = await self.db.execute(select(User).where(User.email == email))
+        user = res.scalar_one_or_none()
+        if user is None:
+            user = await self.create_user(email=email, name=email.split("@")[0] if "@" in email else email)
+        return user
+
+    async def get_or_create_session(self, user_id):
+        from sqlalchemy import select
+        from src.core.models import Session
+        res = await self.db.execute(select(Session).where(Session.user_id == user_id))
+        session = res.scalar_one_or_none()
+        if session is None:
+            session = await self.create_session(user_id=user_id)
+        return session
+
+    async def ensure_user_and_session(self, user_email: str):
+        user = await self.get_or_create_user(user_email)
+        session = await self.get_or_create_session(user.id)
+        return user, session
 
 class ConversationManager:
     """대화 관리"""

@@ -1,3 +1,5 @@
+-- scripts/init_database.py 에서 처리함
+-- 이것은 사용안함.ABORT
 -- Users 테이블
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
