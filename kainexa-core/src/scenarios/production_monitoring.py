@@ -108,21 +108,19 @@ class ProductionMonitoringAgent:
 위 정보를 바탕으로 생산 관리자에게 보고할 내용을 **한국어로만** 작성하세요.
 포함 내용: 현황 요약, 주요 이슈, 권장 조치사항
 """
-        
-        # 안정적 보고서를 위한 파라미터(토큰 여유 + 낮은 온도)
         response = self.llm.generate(
             prompt,
             max_new_tokens=768,
             temperature=0.4,
             top_p=0.9,
         )
-        # 간단 후처리(공백/괄호 주변 정리 등)
-        response = self._postprocess_korean(response)
-        # 한국어 비율이 낮으면 한국어만 사용해 재작성(1회)
-        if self._korean_ratio(response) < 0.7:
+        # ⚠️ 한글 띄어쓰기는 보존하면서, 불필요한 공백/문장부호만 정리
+        response = self._normalize_spacing(response)
+        # 🔁 재작성 트리거: (1) 중문 포함 OR (2) 한글인데 띄어쓰기 밀집도가 비정상적으로 낮음
+        if self._contains_chinese(response) or self._needs_spacing_fix(response) or self._korean_ratio(response) < 0.7:
             rewrite_prompt = (
-                "다음 초안을 자연스러운 한국어 보고서로만(외국어 혼용 금지) "
-                "형식과 내용 흐름을 유지하여 다시 작성하세요:\n\n" + response
+                "아래 초안을 자연스러운 한국어 보고서로만 다시 작성하세요. "
+                "외국어 혼용 금지, 올바른 띄어쓰기 적용, 문장 부호 표준화:\n\n" + response
             )
             response = self.llm.generate(
                 rewrite_prompt,
@@ -130,6 +128,8 @@ class ProductionMonitoringAgent:
                 temperature=0.3,
                 top_p=0.9,
             )
+            response = self._normalize_spacing(response)
+       
         
         return {
             "timestamp": datetime.now().isoformat(),
@@ -141,14 +141,28 @@ class ProductionMonitoringAgent:
                
     
     # --- helpers ---------------------------------------------------------
-    def _postprocess_korean(self, text: str) -> str:
-        """CJK(한중일) 사이 불필요 공백, 괄호 주변 과다 공백 등 정리"""
-        # 한중일 문자 사이 공백 제거
-        text = re.sub(r'(?<=[\u4E00-\u9FFF\uAC00-\uD7A3])\s+(?=[\u4E00-\u9FFF\uAC00-\uD7A3])', '', text)
-        # 괄호 앞뒤 공백 축소
-        text = re.sub(r'\s+([)\]])', r'\1', text)
-        text = re.sub(r'([(\[])\s+', r'\1', text)
+    def _normalize_spacing(self, text: str) -> str:
+        """한글 단어 간 공백은 유지하고, 과다/이상 공백과 문장부호 주변 공백만 정리"""
+        # 탭/다중 스페이스 축소
+        text = re.sub(r'[ \t]{2,}', ' ', text)
+        # 줄 앞쪽 여백 제거
+        text = re.sub(r'\n[ \t]+', '\n', text)
+        # 불필요한 공백: 문장부호 앞
+        text = re.sub(r'\s+([,.:;)\]%])', r'\1', text)
+        # 필요한 공백: .,:% 뒤에 글자가 붙으면 한 칸
+        text = re.sub(r'([,.:%])(?=[^\s\n])', r'\1 ', text)
         return text.strip()
+
+    def _contains_chinese(self, text: str) -> bool:
+        """중국어 한자 포함 여부"""
+        return bool(re.search(r'[\u4E00-\u9FFF]', text))
+
+    def _needs_spacing_fix(self, text: str) -> bool:
+        """한글 대비 공백이 비정상적으로 적으면 True (띄어쓰기 붕괴 감지)"""
+        hangul = sum(1 for c in text if '\uAC00' <= c <= '\uD7A3')
+        spaces = text.count(' ')
+        # 한글이 충분히 많은데도 공백 비율이 아주 낮으면 재작성 유도
+        return hangul >= 80 and (spaces / max(hangul, 1)) < 0.05
 
     def _korean_ratio(self, text: str) -> float:
         """텍스트 중 한글(가~힣) 비중 계산"""
