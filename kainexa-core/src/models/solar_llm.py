@@ -147,6 +147,7 @@ class SolarLLM:
         top_p: float = 0.9,
         top_k: int = 50,
         stream: bool = False,
+        do_sample: bool = True,
     ) -> str:
         """텍스트 생성"""
 
@@ -200,7 +201,7 @@ class SolarLLM:
                 outputs = self.model.generate(
                     **inputs,
                     max_new_tokens=max_new_tokens,
-                    do_sample=True,
+                    do_sample=do_sample,
                     temperature=temperature,
                     top_p=top_p,
                     top_k=top_k,
@@ -215,7 +216,7 @@ class SolarLLM:
                 outputs = self.model.generate(
                     **inputs,
                     max_new_tokens=max(128, max_new_tokens // 2),
-                    do_sample=True,
+                    do_sample=do_sample,
                     temperature=temperature,
                     top_p=top_p,
                     top_k=top_k,

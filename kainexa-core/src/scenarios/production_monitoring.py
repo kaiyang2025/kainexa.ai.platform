@@ -105,30 +105,41 @@ class ProductionMonitoringAgent:
  관련 지식:
  {rag_context}
 
-위 정보를 바탕으로 생산 관리자에게 보고할 내용을 **한국어로만** 작성하세요.
-포함 내용: 현황 요약, 주요 이슈, 권장 조치사항
+위 정보를 바탕으로 생산 관리자에게 보고할 내용을 **한국어(한글)로만** 작성하세요.
+금지: 한자/중국어/영어 혼용, 의미 없는 붙여쓰기.
+형식: 마크다운 제목과 목록으로 구성하세요. 제목은 다음 3개 섹션을 포함합니다.
+- 생산 현황
+- 주요 이슈
+- 권장 조치
+표기 규칙:
+- 숫자는 천 단위 쉼표 사용(예: 11,667)
+- 백분율은 % 기호 사용(예: 97.2%)
 """
+        # 1차 생성: 샘플링 비활성화(그리디)로 안정적인 문장 생성
         response = self.llm.generate(
             prompt,
             max_new_tokens=768,
-            temperature=0.4,
-            top_p=0.9,
+            temperature=0.2,
+            top_p=1.0,
+            do_sample=False,
         )
-        # ⚠️ 한글 띄어쓰기는 보존하면서, 불필요한 공백/문장부호만 정리
+
         response = self._normalize_spacing(response)
-        # 🔁 재작성 트리거: (1) 중문 포함 OR (2) 한글인데 띄어쓰기 밀집도가 비정상적으로 낮음
-        if self._contains_chinese(response) or self._needs_spacing_fix(response) or self._korean_ratio(response) < 0.7:
-            rewrite_prompt = (
-                "아래 초안을 자연스러운 한국어 보고서로만 다시 작성하세요. "
-                "외국어 혼용 금지, 올바른 띄어쓰기 적용, 문장 부호 표준화:\n\n" + response
-            )
-            response = self.llm.generate(
-                rewrite_prompt,
-                max_new_tokens=640,
-                temperature=0.3,
-                top_p=0.9,
-            )
-            response = self._normalize_spacing(response)
+        # 2차: 항상 재작성(한국어만, 띄어쓰기 교정, 문장 부호 표준화, 마크다운 구성)
+        rewrite_prompt = (
+            "아래 초안을 자연스러운 한국어 보고서로만 다시 작성하세요. "
+            "한자/중국어/영어 혼용 금지, 올바른 띄어쓰기 적용, 문장 부호 표준화, "
+            "마크다운 제목(생산 현황/주요 이슈/권장 조치)과 목록 형식을 유지하세요:\n\n"
+            + response
+        )
+        response = self.llm.generate(
+            rewrite_prompt,
+            max_new_tokens=640,
+            temperature=0.2,
+            top_p=1.0,
+            do_sample=False,
+        )
+        response = self._normalize_spacing(response)
        
         
         return {
@@ -147,9 +158,9 @@ class ProductionMonitoringAgent:
         text = re.sub(r'[ \t]{2,}', ' ', text)
         # 줄 앞쪽 여백 제거
         text = re.sub(r'\n[ \t]+', '\n', text)
-        # 불필요한 공백: 문장부호 앞
+        # 문장부호 앞 공백 제거
         text = re.sub(r'\s+([,.:;)\]%])', r'\1', text)
-        # 필요한 공백: .,:% 뒤에 글자가 붙으면 한 칸
+        # 문장부호 뒤 공백 확보(줄바꿈/공백/문장끝 제외)
         text = re.sub(r'([,.:%])(?=[^\s\n])', r'\1 ', text)
         return text.strip()
 
