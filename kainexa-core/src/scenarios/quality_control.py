@@ -3,6 +3,8 @@
 시나리오 3: 품질 관리 및 불량 분석
 """
 import asyncio
+import os
+from time import perf_counter
 from datetime import datetime, timedelta
 import numpy as np
 from typing import Dict, Any, List, Optional
@@ -60,6 +62,7 @@ class QualityControlAgent:
     async def analyze_quality(self) -> Dict[str, Any]:
         """품질 분석"""
         
+        t0 = perf_counter()
         print("🔍 품질 데이터 분석 중...")
         
         data = self.quality_data
@@ -73,15 +76,17 @@ class QualityControlAgent:
         # 3. 패턴 발견
         patterns = self._find_patterns(data)
         
-        # 4. LLM으로 종합 분석
-        self.llm.load()
-        
-        prompt = f"""
-품질 관리 주간 보고서 작성
+        # 4. 종합 보고서 (기본: 템플릿 초고속, 필요 시 LLM 경로 토글)
+        use_llm = os.getenv("KXN_USE_LLM_QUALITY", os.getenv("KXN_USE_LLM_REPORT", "0")) == "1"
+        if not use_llm:
+            response = self._render_report_korean(data, trends, patterns, root_causes)
+        else:
+            self.llm.load()
+            prompt = f"""
+품질 관리 주간 보고서 (한국어 전용)
 
 기간: {data['period']}
-생산량: {data['production_volume']:,}개
-검사량: {data['inspected']:,}개
+생산량: {data['production_volume']:,}개 / 검사량: {data['inspected']:,}개
 
 품질 지표:
 - 불량률: {data['metrics']['defect_rate']}%
@@ -89,11 +94,11 @@ class QualityControlAgent:
 - 시그마 레벨: {data['metrics']['sigma_level']}
 - 고객 클레임: {data['metrics']['customer_claims']}건
 
-불량 유형 분석:
-- 치수 불량: {data['defects']['types']['dimension']}개 (42%)
-- 외관 불량: {data['defects']['types']['surface']}개 (28%)
-- 조립 불량: {data['defects']['types']['assembly']}개 (20%)
-- 기타: {data['defects']['types']['others']}개 (10%)
+불량 유형 (개수·비중):
+- 치수: {data['defects']['types']['dimension']} (42%)
+- 외관: {data['defects']['types']['surface']} (28%)
+- 조립: {data['defects']['types']['assembly']} (20%)
+- 기타: {data['defects']['types']['others']} (10%)
 
 발견된 패턴:
 {patterns}
@@ -101,21 +106,26 @@ class QualityControlAgent:
 근본 원인:
 {root_causes}
 
-AI 비전 검사 성과:
+AI 비전 성과:
 - 미세 크랙 {data['ai_detection']['micro_cracks']}건 사전 감지
-- 예상 클레임 방지 효과: {data['ai_detection']['prevented_claims']:,}원
+- 예상 클레임 방지: {data['ai_detection']['prevented_claims']:,}원
 
-위 정보를 바탕으로 품질 개선 방안을 포함한 종합 보고서를 작성하세요.
+위 정보를 바탕으로 **한국어(한글)로만** 다음 섹션의 마크다운 보고서를 간결히 작성하세요.
+섹션: 요약 지표 / 주요 패턴 / 근본 원인 / 개선 계획(단·중·장기) / ROI.
+숫자는 천 단위 쉼표, 백분율은 % 표기. 외국어/한자 혼용 금지.
 """
-        
-        response = self.llm.generate(
-            prompt,
-            max_new_tokens=768,
-            temperature=0.5
-        )
+            response = self.llm.generate(
+                prompt,
+                max_new_tokens=448,   # 속도 절충
+                do_sample=False,      # 그리디
+                ko_only=True          # 한자/중문 토큰 금지
+            )
+
         
         # 5. 개선 계획 수립
         improvement_plan = self._create_improvement_plan(data, patterns, root_causes)
+        
+        duration_ms = int((perf_counter() - t0) * 1000)
         
         return {
             "timestamp": datetime.now().isoformat(),
@@ -127,9 +137,10 @@ AI 비전 검사 성과:
             },
             "patterns": patterns,
             "root_causes": root_causes,
-            "ai_analysis": response,
+            "ai_analysis": self._normalize_spacing(response),
             "improvement_plan": improvement_plan,
-            "roi_estimation": self._estimate_roi(data)
+            "roi_estimation": self._estimate_roi(data),
+            "duration_ms": duration_ms
         }
     
     def _analyze_trends(self, data: Dict) -> Dict:
@@ -271,6 +282,44 @@ AI 비전 검사 성과:
             "total_monthly_benefit": cost_savings + ai_prevention,
             "roi_percentage": 285  # 시뮬레이션 값
         }
+        
+
+    # ───────────── 템플릿 기반 한국어 보고서(초고속) ─────────────
+    def _render_report_korean(
+        self, data: Dict[str, Any], trends: Dict[str, Any],
+        patterns: List[str], root_causes: List[Dict[str, Any]]
+    ) -> str:
+        fnum = lambda n: f"{n:,}"
+        d = data
+        m = d["metrics"]
+        lines = [
+            "# 주간 품질 보고서",
+            f"- 기간: **{d['period']}**",
+            f"- 생산량/검사량: **{fnum(d['production_volume'])} / {fnum(d['inspected'])}** 개",
+            "\n## 요약 지표",
+            f"- 불량률: **{m['defect_rate']}%**, Cpk: **{m['cpk']}**, 시그마: **{m['sigma_level']}**, 클레임: **{m['customer_claims']}건**",
+            f"- 트렌드: **{('개선' if trends['overall']=='improving' else '악화')}**, 변화율: **{trends['change_percentage']}%**",
+            "\n## 주요 패턴",
+            *(["- " + p for p in patterns] or ["- 특이 패턴 없음"]),
+            "\n## 근본 원인",
+            *(["- " + f"{c['type']}: {c['cause']} (증거: {c['evidence']}) → 해결: {c['solution']}" for c in root_causes] or ["- 근본 원인 없음"]),
+            "\n## 개선 계획",
+            "- 단기(1주): 야간 근무자 교육, 공조 점검, Line 2 금형 정밀 점검",
+            "- 중기(1개월): AI 비전 확대, SPC 강화, 작업 표준서 업데이트",
+            "- 장기(3개월): 6시그마 프로젝트, 자동화 검토, 품질 예측 AI 구축",
+            "\n## AI 비전 성과/ROI",
+            f"- 미세 크랙 사전 감지: **{d['ai_detection']['micro_cracks']}건**",
+            f"- 클레임 방지 추정: **{fnum(d['ai_detection']['prevented_claims'])}원**",
+        ]
+        return "\n".join(lines)
+
+    def _normalize_spacing(self, text: str) -> str:
+        import re
+        text = re.sub(r'[ \t]{2,}', ' ', text)
+        text = re.sub(r'\n[ \t]+', '\n', text)
+        text = re.sub(r'\s+([,.:;)\]%])', r'\1', text)
+        text = re.sub(r'([,.:%])(?=[^\s\n])', r'\1 ', text)
+        return text.strip()
 
 async def run_scenario():
     """시나리오 실행"""

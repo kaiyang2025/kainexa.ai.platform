@@ -3,6 +3,8 @@
 시나리오 2: 예측적 유지보수
 """
 import asyncio
+import os
+from time import perf_counter
 from datetime import datetime, timedelta
 import numpy as np
 from typing import Dict, Any, List, Optional
@@ -42,6 +44,7 @@ class PredictiveMaintenanceAgent:
     async def predict_failure(self, equipment_id: str) -> Dict[str, Any]:
         """고장 예측"""
         
+        t0 = perf_counter()
         print(f"🔮 설비 {equipment_id} 고장 예측 분석...")
         
         # 설비 데이터 가져오기
@@ -54,10 +57,13 @@ class PredictiveMaintenanceAgent:
         # 2. 고장 확률 계산
         failure_probability = self._calculate_failure_probability(analysis)
         
-        # 3. LLM으로 분석 보고서 생성
-        self.llm.load()
-        
-        prompt = f"""
+        # 3. 보고서 생성 (기본: 템플릿 초고속, 필요 시 LLM 경로 토글)
+        use_llm = os.getenv("KXN_USE_LLM_MAINT", os.getenv("KXN_USE_LLM_REPORT", "0")) == "1"
+        if not use_llm:
+            response = self._render_report_korean(equipment_id, equipment, sensors, analysis, failure_probability)
+        else:
+            self.llm.load()
+            prompt = f"""
 설비 ID: {equipment_id}
 운영 시간: {equipment['operating_hours']}시간
 마지막 정비: {equipment['last_maintenance']}
@@ -66,23 +72,24 @@ class PredictiveMaintenanceAgent:
 - 진동: {analysis['vibration']['trend']} (현재: {sensors['vibration'][-1]})
 - 온도: {analysis['temperature']['trend']} (현재: {sensors['temperature'][-1]}°C)
 - 전류: {analysis['current']['trend']} (현재: {sensors['current'][-1]}A)
-- 소음: {analysis['noise']['trend']} (현재: {sensors['noise_db'][-1]}dB)
+- 소음: {analysis['noise_db']['trend'] if 'trend' in analysis['noise_db'] else analysis['noise']['trend']} (현재: {sensors['noise_db'][-1]}dB)
 
 고장 확률: {failure_probability}%
 
-과거 유사 패턴:
+과거 유사 패턴(참고만, 결과는 한국어로만 기술):
 - 2023년 베어링 마모 시: 진동 4.0, 온도 76°C
 - 2024년 스핀들 이상 시: 진동 3.5, 소음 80dB
 
-위 정보를 바탕으로 예측적 유지보수 권장사항을 작성하세요.
-포함 내용: 고장 원인 분석, 예상 고장 시점, 권장 조치사항, 예방 정비 계획
+위 정보를 바탕으로 **한국어(한글)로만** 간결한 예지보전 보고서를 작성하세요.
+필수 섹션: 고장 징후/예상 시점/권장 조치/예방 정비 계획.
+숫자는 천 단위 쉼표, 백분율은 % 표기.
 """
-        
-        response = self.llm.generate(
-            prompt,
-            max_new_tokens=768,
-            temperature=0.5
-        )
+            response = self.llm.generate(
+                prompt,
+                max_new_tokens=448,   # 속도 절충
+                do_sample=False,      # 그리디(안정/속도)
+                ko_only=True          # 한자/중문 토큰 금지
+            )
         
         # 4. 정비 일정 제안
         maintenance_schedule = self._suggest_maintenance_schedule(
@@ -90,16 +97,19 @@ class PredictiveMaintenanceAgent:
             equipment['last_maintenance']
         )
         
+        
+        duration_ms = int((perf_counter() - t0) * 1000)
         return {
             "equipment_id": equipment_id,
             "timestamp": datetime.now().isoformat(),
             "sensor_analysis": analysis,
             "failure_probability": failure_probability,
             "predicted_failure_time": self._estimate_failure_time(failure_probability),
-            "ai_analysis": response,
+            "ai_analysis": self._normalize_spacing(response),
             "maintenance_schedule": maintenance_schedule,
             "estimated_downtime": self._estimate_downtime(analysis),
-            "spare_parts": self._recommend_spare_parts(analysis)
+            "spare_parts": self._recommend_spare_parts(analysis),
+            "duration_ms": duration_ms
         }
     
     def _analyze_sensor_trends(self, sensors: Dict) -> Dict:
@@ -223,6 +233,61 @@ class PredictiveMaintenanceAgent:
             parts.append("방진 패드")
         
         return parts if parts else ["정기 소모품"]
+    
+    
+    
+    # ───────────── 템플릿 기반 한국어 보고서(초고속) ─────────────
+    def _render_report_korean(
+        self,
+        equipment_id: str,
+        equipment: Dict[str, Any],
+        sensors: Dict[str, List[float]],
+        analysis: Dict[str, Any],
+        failure_probability: float
+    ) -> str:
+        def pct(x): return f"{x:.1f}%"
+        vib = analysis["vibration"]; tmp = analysis["temperature"]
+        cur = analysis["current"];   noi = analysis["noise_db"]
+        lines = [
+            f"- 진동: 현재 {sensors['vibration'][-1]} (추세: {vib['trend']}, 변화율 {pct(vib['change_rate'])})",
+            f"- 온도: 현재 {sensors['temperature'][-1]}°C (추세: {tmp['trend']}, 변화율 {pct(tmp['change_rate'])})",
+            f"- 전류: 현재 {sensors['current'][-1]}A (추세: {cur['trend']}, 변화율 {pct(cur['change_rate'])})",
+            f"- 소음: 현재 {sensors['noise_db'][-1]}dB (추세: {noi['trend']}, 변화율 {pct(noi['change_rate'])})",
+        ]
+        issue_flags = []
+        for k, label in [("vibration","진동"),("temperature","온도"),("current","전류"),("noise_db","소음")]:
+            if analysis[k]["over_threshold"]:
+                issue_flags.append(f"- {label}: 임계 초과")
+        md = [
+            f"# 예지보전 보고서 ({equipment_id})",
+            f"- 운영 시간: **{equipment['operating_hours']:,}** 시간",
+            f"- 마지막 정비: **{equipment['last_maintenance']}**",
+            "\n## 센서 트렌드",
+            *lines,
+            f"\n## 고장 예측",
+            f"- 예상 확률: **{failure_probability:.1f}%**",
+            f"- 예상 시점: **{self._estimate_failure_time(failure_probability)}**",
+            f"- 예상 정지 시간: **{self._estimate_downtime(analysis)}**",
+            "\n## 주요 징후",
+            *(issue_flags or ["- 임계 초과 징후 없음"]),
+            "\n## 권장 조치",
+            "- 임계 초과/상승 추세 센서 원인 점검(베어링/냉각/전장/방진)",
+            "- 예비 부품 확보 및 취약 부품 선교체 검토",
+            "- 조건부 예방 정비 일정 수립 및 가동 중 점검 강화",
+            "\n## 예방 정비 계획(제안)",
+            f"- 권장 일정: **{self._suggest_maintenance_schedule(failure_probability, equipment['last_maintenance'])['recommended_date']}**",
+            f"- 유형/소요: **{self._suggest_maintenance_schedule(failure_probability, equipment['last_maintenance'])['type']}**, **{self._suggest_maintenance_schedule(failure_probability, equipment['last_maintenance'])['estimated_duration']}**",
+        ]
+        return "\n".join(md)
+
+    def _normalize_spacing(self, text: str) -> str:
+        """과다 공백/붙여쓰기 최소 정리"""
+        import re
+        text = re.sub(r'[ \t]{2,}', ' ', text)
+        text = re.sub(r'\n[ \t]+', '\n', text)
+        text = re.sub(r'\s+([,.:;)\]%])', r'\1', text)
+        text = re.sub(r'([,.:%])(?=[^\s\n])', r'\1 ', text)
+        return text.strip()
 
 async def run_scenario():
     """시나리오 실행"""
