@@ -196,11 +196,14 @@ async def chat(
             f"[답변] 한국어(한글)로만 간결하게."
         )
 
+        # ✅ 한국어 강제 모드: 1차 생성부터 영문자 차단 + 한글 비율 기준 강화
         response_text = _llm.generate(
             prompt,
             max_new_tokens=448,
-            do_sample=False,  # 그리디
-            ko_only=True,     # 한자/중문 토큰 금지
+            do_sample=False,       # 그리디: 일관성/속도
+            ko_only=True,          # CJK(한자/중문) 금지
+            ko_floor=0.95,         # 한글 비율 하한 강화
+            always_block_ascii=True  # 영문자(a-zA-Z) 1차부터 금지
         )
 
         # 8) 어시스턴트 메시지 저장

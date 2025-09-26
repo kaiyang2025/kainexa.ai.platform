@@ -162,6 +162,7 @@ class SolarLLM:
         top_p: float = 0.9,
         top_k: int = 50,
         ko_floor: float = 0.85,    # 한글 비율 하한선
+        always_block_ascii: bool = False,  # ✅ 1차부터 영문자 차단
     ) -> str:
         """텍스트 생성(한글 비율 낮을 경우 1회 재생성으로 한국어 강제)"""
 
@@ -197,8 +198,13 @@ class SolarLLM:
             max_new_tokens=max_new_tokens,
             streamer=streamer if stream else None,
         )
+        
         if ko_only:
-            gen_kwargs["bad_words_ids"] = self._get_cjk_bad_ids()  # 중문 차단
+            bad_words = self._get_cjk_bad_ids()  # 기본: 중문(한자) 차단
+            if always_block_ascii:
+                # ✅ 1차부터 영문자 a-zA-Z 전면 차단(숫자/문장부호는 허용)
+                bad_words += self._get_ascii_letter_bad_ids()
+            gen_kwargs["bad_words_ids"] = bad_words
 
         start_time = time.time()
         outputs = self._safe_generate(inputs, gen_kwargs, max_new_tokens, stream, do_sample, ko_only)
