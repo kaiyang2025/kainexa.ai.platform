@@ -37,6 +37,7 @@ class SolarLLM:
 
         self.model = None
         self.tokenizer = None
+        self._ko_only_bad_ids: Optional[List[List[int]]] = None  # 한자/중문 토큰 금지 캐시
 
         # 한국어 시스템 프롬프트
         self.system_prompt = (
@@ -54,6 +55,14 @@ class SolarLLM:
             return
 
         logger.info(f"Loading Solar model from {self.model_path}")
+        
+        # ✅ Ampere(RTX 3090) 최적화: TF32 사용으로 속도 향상
+        if torch.cuda.is_available():
+            try:
+                torch.backends.cuda.matmul.allow_tf32 = True
+                torch.set_float32_matmul_precision("high")
+            except Exception:
+                pass
 
         # 토크나이저
         self.tokenizer = AutoTokenizer.from_pretrained(
@@ -142,12 +151,13 @@ class SolarLLM:
     def generate(
         self,
         prompt: str,
-        max_new_tokens: int = 512,
+        max_new_tokens: int = 512,        
+        stream: bool = False,
+        do_sample: bool = False,   # 기본은 그리디 → 속도/안정성↑
+        ko_only: bool = True,      # 한국어만 출력 강제
         temperature: float = 0.7,
         top_p: float = 0.9,
         top_k: int = 50,
-        stream: bool = False,
-        do_sample: bool = True,
     ) -> str:
         """텍스트 생성"""
 
@@ -198,32 +208,52 @@ class SolarLLM:
         start_time = time.time()
         with torch.no_grad():
             try:
-                outputs = self.model.generate(
-                    **inputs,
-                    max_new_tokens=max_new_tokens,
-                    do_sample=do_sample,
-                    temperature=temperature,
-                    top_p=top_p,
-                    top_k=top_k,
-                    pad_token_id=self.tokenizer.eos_token_id,
-                    streamer=streamer,
-                )
+                gen_kwargs = {
+                   "max_new_tokens": max_new_tokens,
+                   "pad_token_id": self.tokenizer.eos_token_id,
+                }
+                if stream:
+                    gen_kwargs["streamer"] = streamer
+                if do_sample:
+                    gen_kwargs.update({
+                        "do_sample": True,
+                        "temperature": temperature,
+                        "top_p": top_p,
+                        "top_k": top_k,
+                    })
+                else:
+                    # 그리디: 샘플링 옵션 전달 금지
+                    gen_kwargs.update({"do_sample": False})
+                # 한국어만 강제: 한자/중문 토큰 금지 목록 적용
+                if ko_only:
+                    gen_kwargs["bad_words_ids"] = self._get_cjk_bad_ids()
+                outputs = self.model.generate(**inputs, **gen_kwargs)
+
             except torch.cuda.OutOfMemoryError:
                 logger.warning("⚠️ OOM during generate(); retrying with smaller settings…")
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
                 # 토큰수 절반(최소 128), 캐시 비활성화로 폴백
-                outputs = self.model.generate(
-                    **inputs,
-                    max_new_tokens=max(128, max_new_tokens // 2),
-                    do_sample=do_sample,
-                    temperature=temperature,
-                    top_p=top_p,
-                    top_k=top_k,
-                    use_cache=False,
-                    pad_token_id=self.tokenizer.eos_token_id,
-                    streamer=streamer,
-                )
+                fb_kwargs = {
+                    "max_new_tokens": max(128, max_new_tokens // 2),
+                    "use_cache": False,
+                    "pad_token_id": self.tokenizer.eos_token_id,
+                }
+                if stream:
+                    fb_kwargs["streamer"] = streamer
+                if do_sample:
+                    fb_kwargs.update({
+                        "do_sample": True,
+                        "temperature": temperature,
+                        "top_p": top_p,
+                        "top_k": top_k,
+                    })
+                else:
+                    fb_kwargs.update({"do_sample": False})
+                    
+                if ko_only:
+                    fb_kwargs["bad_words_ids"] = self._get_cjk_bad_ids()    
+                outputs = self.model.generate(**inputs, **fb_kwargs)
 
         # 디코딩: 프롬프트 토큰을 제외한 부분만
         gen_ids = outputs[0][prompt_len:]
@@ -270,3 +300,32 @@ class SolarLLM:
                 "usage_percent": round((mem_alloc / mem_total) * 100, 1),
             }
         return memory_stats
+    
+    
+    # ───────────────────────── helpers ─────────────────────────
+    def _get_cjk_bad_ids(self) -> List[List[int]]:
+        """
+        중국어/한자(CJK Unified Ideographs 및 확장A, 호환) 토큰을 금지 목록으로 생성.
+        최초 1회 스캔 후 캐시. (LLaMA류 BPE ~32~50k 토큰이므로 1회 비용은 허용 가능)
+        """
+        if self._ko_only_bad_ids is not None:
+            return self._ko_only_bad_ids
+        bad: List[List[int]] = []
+        vocab_size = getattr(self.tokenizer, "vocab_size", None)
+        if vocab_size is None:
+            # 일부 토크나이저의 예외적 케이스 방지
+            vocab_size = int(max(self.tokenizer.get_vocab().values())) + 1
+        for tid in range(vocab_size):
+            s = self.tokenizer.decode([tid], skip_special_tokens=True)
+            if not s:
+                continue
+            # CJK 범위: 기본(4E00-9FFF), 확장A(3400-4DBF), 호환(F900-FAFF)
+            if any(
+                ("\u4E00" <= ch <= "\u9FFF") or
+                ("\u3400" <= ch <= "\u4DBF") or
+                ("\uF900" <= ch <= "\uFAFF")
+                for ch in s
+            ):
+                bad.append([tid])
+        self._ko_only_bad_ids = bad
+        return bad

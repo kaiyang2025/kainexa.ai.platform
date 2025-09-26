@@ -5,9 +5,8 @@
 import asyncio
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
-import re
+import os, re, json
 import random
-import json
 
 from src.models.solar_llm import SolarLLM
 from src.governance.rag_pipeline import RAGGovernance, AccessLevel
@@ -90,57 +89,37 @@ class ProductionMonitoringAgent:
         # 4. LLM으로 보고서 생성
         self.llm.load()
         
-        prompt = f"""
+        # ── 빠른 경로(기본): LLM 없이 한국어 보고서 템플릿 생성 ─────────────────
+        use_llm = os.getenv("KXN_USE_LLM_REPORT", "0") == "1"
+        if not use_llm:
+            response = self._render_report_korean(data, issues)
+        else:
+            # ── 느리지만 유연한 경로: LLM 사용(그리디 + 한국어 강제) ───────────────
+            prompt = f"""
 사용자 질문: {user_query}
- 
- 생산 데이터:
- - 계획 생산량: {data['total']['planned']}개
- - 실제 생산량: {data['total']['actual']}개
- - 달성률: {data['total']['achievement_rate']}%
- - 불량품: {data['total']['defects']}개 (불량률: {data['total']['defect_rate']}%)
- 
- 주요 이슈:
- {json.dumps(issues, ensure_ascii=False, indent=2)}
- 
- 관련 지식:
- {rag_context}
 
-위 정보를 바탕으로 생산 관리자에게 보고할 내용을 **한국어(한글)로만** 작성하세요.
-금지: 한자/중국어/영어 혼용, 의미 없는 붙여쓰기.
-형식: 마크다운 제목과 목록으로 구성하세요. 제목은 다음 3개 섹션을 포함합니다.
-- 생산 현황
-- 주요 이슈
-- 권장 조치
-표기 규칙:
-- 숫자는 천 단위 쉼표 사용(예: 11,667)
-- 백분율은 % 기호 사용(예: 97.2%)
+생산 데이터:
+- 계획 생산량: {data['total']['planned']:,}개
+- 실제 생산량: {data['total']['actual']:,}개
+- 달성률: {data['total']['achievement_rate']:.1f}%
+- 불량품: {data['total']['defects']:,}개 (불량률: {data['total'].get('defect_rate_pct', data['total'].get('defect_rate', 0.0)):.2f}%)
+
+주요 이슈:
+{json.dumps(issues, ensure_ascii=False, indent=2)}
+
+관련 지식(요약만 참고, 외국어 표현은 모두 한국어로 바꿔 기술):
+{rag_context}
+
+반드시 한국어(한글)로만, 마크다운 섹션(생산 현황/주요 이슈/권장 조치)으로 간결히 작성하세요.
+숫자는 천 단위 쉼표, 백분율은 %를 붙이세요. 외국어·한자·중국어 혼용 금지.
 """
-        # 1차 생성: 샘플링 비활성화(그리디)로 안정적인 문장 생성
-        response = self.llm.generate(
-            prompt,
-            max_new_tokens=768,
-            temperature=0.2,
-            top_p=1.0,
-            do_sample=False,
-        )
-
-        response = self._normalize_spacing(response)
-        # 2차: 항상 재작성(한국어만, 띄어쓰기 교정, 문장 부호 표준화, 마크다운 구성)
-        rewrite_prompt = (
-            "아래 초안을 자연스러운 한국어 보고서로만 다시 작성하세요. "
-            "한자/중국어/영어 혼용 금지, 올바른 띄어쓰기 적용, 문장 부호 표준화, "
-            "마크다운 제목(생산 현황/주요 이슈/권장 조치)과 목록 형식을 유지하세요:\n\n"
-            + response
-        )
-        response = self.llm.generate(
-            rewrite_prompt,
-            max_new_tokens=640,
-            temperature=0.2,
-            top_p=1.0,
-            do_sample=False,
-        )
-        response = self._normalize_spacing(response)
-       
+            response = self.llm.generate(
+                prompt,
+                max_new_tokens=448,   # 속도↑
+                do_sample=False,      # 그리디
+            )
+            response = self._normalize_spacing(response)
+      
         
         return {
             "timestamp": datetime.now().isoformat(),
@@ -163,6 +142,51 @@ class ProductionMonitoringAgent:
         # 문장부호 뒤 공백 확보(줄바꿈/공백/문장끝 제외)
         text = re.sub(r'([,.:%])(?=[^\s\n])', r'\1 ', text)
         return text.strip()
+
+
+    # ── 템플릿 기반 한국어 보고서(초고속) ─────────────────────────────────────────
+    def _render_report_korean(self, data: Dict[str, Any], issues: list) -> str:
+        t = data["total"]
+        fnum = lambda n: f"{n:,}"
+        lines_md = []
+        for name, info in data["lines"].items():
+            parts = [
+                f"- **{name.replace('_',' ').title()}**: 계획 {fnum(info['planned'])}개, "
+                f"실적 {fnum(info['actual'])}개, 불량 {fnum(info['defects'])}개, "
+                f"OEE {info.get('oee','-')}%"
+            ]
+            if "downtime_min" in info:
+                parts.append(f"(정지 {info['downtime_min']}분)")
+            if "speed" in info:
+                parts.append(f"(속도 {info['speed']}%)")
+            lines_md.append(" ".join(parts))
+        issues_md = []
+        for it in issues:
+            desc = f"- **{it['line']}**: {it['type']} (심각도: {it['severity']})"
+            if it.get("details"):
+                desc += f", {it['details']}"
+            if it.get("cause"):
+                desc += f", 원인: {it['cause']}"
+            if it.get("impact"):
+                desc += f", 영향: {it['impact']}"
+            if it.get("target"):
+                desc += f", 목표: {it['target']}"
+            issues_md.append(desc)
+        md = []
+        md.append("# 생산 현황")
+        md.append(f"- 계획 생산량: **{fnum(t['planned'])}**개")
+        md.append(f"- 실제 생산량: **{fnum(t['actual'])}**개")
+        ach = f"{t['achievement_rate']:.1f}%"
+        dfr = t.get("defect_rate_pct", t.get("defect_rate", 0.0))
+        md.append(f"- 달성률: **{ach}** / 불량률: **{dfr:.2f}%**")
+        md.append("\n## 라인별 요약")
+        md.extend(lines_md)
+        md.append("\n# 주요 이슈")
+        md.extend(issues_md if issues_md else ["- 보고된 이슈 없음"])
+        md.append("\n# 권장 조치")
+        recs = self._generate_recommendations(issues)
+        md.extend([f"- {r}" for r in recs] or ["- 별도 조치 없음"])
+        return "\n".join(md)
 
     def _contains_chinese(self, text: str) -> bool:
         """중국어 한자 포함 여부"""
