@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kainexa AI Demo - Solar LLM 기반 한국어 CS 자동화</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        * { 
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+        }
+        
+        .typing-animation::after {
+            content: '|';
+            animation: blink 1s infinite;
+        }
+        
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+        
+        .message-animation {
+            animation: slideIn 0.3s ease-out;
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .gradient-border {
+            background: linear-gradient(135deg, #6366F1, #8B5CF6);
+            padding: 1px;
+            border-radius: 24px;
+        }
+        
+        .pulse-dot {
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-indigo-50 via-white to-purple-50 min-h-screen">
+    <!-- 상단 알림바 -->
+    <div class="bg-indigo-600 text-white py-2 text-center text-sm">
+        <div class="max-w-7xl mx-auto px-4 flex items-center justify-between">
+            <span>🔥 Kainexa AI 라이브 데모를 체험 중입니다</span>
+            <a href="index.html" class="underline hover:no-underline">← 메인으로 돌아가기</a>
+        </div>
+    </div>
+
+    <!-- Header -->
+    <header class="bg-white/80 backdrop-blur-lg border-b border-gray-100 sticky top-10 z-50">
+        <div class="max-w-7xl mx-auto px-4 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <a href="index.html" class="flex items-center gap-2">
+                        <svg class="w-8 h-8" viewBox="0 0 32 32" fill="none">
+                            <rect width="32" height="32" rx="8" fill="url(#logo-gradient)"/>
+                            <path d="M8 12L16 8L24 12V20L16 24L8 20V12Z" fill="white" opacity="0.9"/>
+                            <defs>
+                                <linearGradient id="logo-gradient" x1="0" y1="0" x2="32" y2="32">
+                                    <stop stop-color="#6366F1"/>
+                                    <stop offset="1" stop-color="#8B5CF6"/>
+                                </linearGradient>
+                            </defs>
+                        </svg>
+                        <span class="text-xl font-bold">Kainexa AI</span>
+                    </a>
+                    <span class="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-semibold">DEMO</span>
+                </div>
+                
+                <nav class="hidden md:flex items-center gap-6">
+                    <a href="index.html" class="text-sm text-gray-700 hover:text-indigo-600">Home</a>
+                    <a href="index.html#products" class="text-sm text-gray-700 hover:text-indigo-600">Products</a>
+                    <a href="index.html#technology" class="text-sm text-gray-700 hover:text-indigo-600">Technology</a>
+                    <a href="index.html##solutions" class="text-sm text-gray-700 hover:text-indigo-600">Solutions</a>
+                    <a href="index.html#company" class="text-sm text-gray-700 hover:text-indigo-600">Company</a>
+                    <button onclick="resetDemo()" class="px-4 py-2 bg-gray-900 text-white text-sm font-semibold rounded-lg hover:bg-gray-800 transition">
+                        데모 초기화
+                    </button>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="max-w-7xl mx-auto px-4 py-8">
+        <div class="grid lg:grid-cols-3 gap-8">
+            <!-- Left Panel - Info & Controls -->
+            <div class="lg:col-span-1 space-y-6">
+                <!-- Demo Info -->
+                <div class="bg-white rounded-2xl p-6 shadow-sm">
+                    <h2 class="text-lg font-bold mb-4">🎯 데모 시나리오</h2>
+                    <p class="text-sm text-gray-600 mb-4">
+                        실제 고객 서비스 상황을 체험해보세요. Solar LLM이 한국어 문의를 자연스럽게 처리합니다.
+                    </p>
+                    
+                    <!-- Quick Scenarios -->
+                    <div class="space-y-2">
+                        <button onclick="sendPredefinedMessage('주문한 제품이 아직 안 왔는데요')" 
+                                class="w-full text-left px-4 py-3 bg-indigo-50 hover:bg-indigo-100 rounded-lg text-sm transition">
+                            💳 <span class="font-medium">배송 문의</span>
+                        </button>
+                        <button onclick="sendPredefinedMessage('환불하고 싶습니다')" 
+                                class="w-full text-left px-4 py-3 bg-indigo-50 hover:bg-indigo-100 rounded-lg text-sm transition">
+                            💰 <span class="font-medium">환불 요청</span>
+                        </button>
+                        <button onclick="sendPredefinedMessage('요금제 변경하려고 하는데요')" 
+                                class="w-full text-left px-4 py-3 bg-indigo-50 hover:bg-indigo-100 rounded-lg text-sm transition">
+                            📱 <span class="font-medium">요금제 변경</span>
+                        </button>
+                        <button onclick="sendPredefinedMessage('결제 오류가 발생했어요')" 
+                                class="w-full text-left px-4 py-3 bg-indigo-50 hover:bg-indigo-100 rounded-lg text-sm transition">
+                            ⚠️ <span class="font-medium">기술 지원</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Performance Metrics -->
+                <div class="bg-white rounded-2xl p-6 shadow-sm">
+                    <h3 class="text-lg font-bold mb-4">📊 실시간 성능</h3>
+                    <div class="space-y-4">
+                        <div>
+                            <div class="flex justify-between text-sm mb-1">
+                                <span class="text-gray-600">응답 시간</span>
+                                <span class="font-semibold" id="response-time">0.8초</span>
+                            </div>
+                            <div class="w-full bg-gray-200 rounded-full h-2">
+                                <div class="bg-gradient-to-r from-indigo-500 to-purple-500 h-2 rounded-full" style="width: 92%"></div>
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <div class="flex justify-between text-sm mb-1">
+                                <span class="text-gray-600">의도 파악 정확도</span>
+                                <span class="font-semibold" id="accuracy">96%</span>
+                            </div>
+                            <div class="w-full bg-gray-200 rounded-full h-2">
+                                <div class="bg-gradient-to-r from-green-500 to-emerald-500 h-2 rounded-full" style="width: 96%"></div>
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <div class="flex justify-between text-sm mb-1">
+                                <span class="text-gray-600">감정 분석</span>
+                                <span class="font-semibold" id="sentiment">중립</span>
+                            </div>
+                            <div class="w-full bg-gray-200 rounded-full h-2">
+                                <div class="bg-gradient-to-r from-blue-500 to-cyan-500 h-2 rounded-full" style="width: 50%"></div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-4 pt-4 border-t">
+                        <div class="grid grid-cols-2 gap-4 text-center">
+                            <div>
+                                <div class="text-2xl font-bold text-indigo-600" id="total-messages">0</div>
+                                <div class="text-xs text-gray-600">총 대화</div>
+                            </div>
+                            <div>
+                                <div class="text-2xl font-bold text-green-600" id="resolution-rate">0%</div>
+                                <div class="text-xs text-gray-600">해결률</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- System Status -->
+                <div class="bg-gradient-to-br from-indigo-600 to-purple-600 rounded-2xl p-6 text-white">
+                    <h3 class="font-bold mb-3">시스템 상태</h3>
+                    <div class="space-y-2 text-sm">
+                        <div class="flex items-center gap-2">
+                            <span class="w-2 h-2 bg-green-400 rounded-full"></span>
+                            <span>Solar LLM: 정상 작동</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="w-2 h-2 bg-green-400 rounded-full"></span>
+                            <span>한국어 모델: 활성화</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="w-2 h-2 bg-green-400 rounded-full"></span>
+                            <span>CS 지식베이스: 연결됨</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Center - Chat Interface -->
+            <div class="lg:col-span-2">
+                <div class="gradient-border h-full">
+                    <div class="bg-white rounded-[23px] h-full flex flex-col" style="min-height: 600px;">
+                        <!-- Chat Header -->
+                        <div class="p-6 border-b">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <h2 class="text-xl font-bold">고객 상담 채팅</h2>
+                                    <p class="text-sm text-gray-600 mt-1">AI 상담사가 실시간으로 응답합니다</p>
+                                </div>
+                                <div class="flex items-center gap-3">
+                                    <select id="customer-type" class="px-3 py-1.5 text-sm border rounded-lg">
+                                        <option value="general">일반 고객</option>
+                                        <option value="vip">VIP 고객</option>
+                                        <option value="angry">불만 고객</option>
+                                    </select>
+                                    <select id="industry" class="px-3 py-1.5 text-sm border rounded-lg">
+                                        <option value="ecommerce">이커머스</option>
+                                        <option value="telecom">통신사</option>
+                                        <option value="finance">금융</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Chat Messages -->
+                        <div id="chat-container" class="flex-1 overflow-y-auto p-6 space-y-4">
+                            <!-- Welcome Message -->
+                            <div class="flex gap-3 message-animation">
+                                <div class="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-full flex items-center justify-center text-white font-bold">
+                                    AI
+                                </div>
+                                <div class="flex-1">
+                                    <div class="bg-gray-100 rounded-2xl rounded-tl-none p-4 max-w-md">
+                                        <p class="text-sm">안녕하세요! 무엇을 도와드릴까요? 🙂</p>
+                                        <p class="text-xs text-gray-500 mt-2">배송, 환불, 교환, 제품 문의 등 무엇이든 물어보세요.</p>
+                                    </div>
+                                    <div class="flex items-center gap-3 mt-2 text-xs text-gray-500">
+                                        <span>응답시간: 0.3초</span>
+                                        <span>•</span>
+                                        <span>신뢰도: 100%</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Input Area -->
+                        <div class="p-6 border-t">
+                            <div class="flex gap-3">
+                                <input type="text" 
+                                       id="user-input" 
+                                       placeholder="메시지를 입력하세요..." 
+                                       class="flex-1 px-4 py-3 bg-gray-50 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition"
+                                       onkeypress="handleKeyPress(event)">
+                                <button onclick="sendMessage()" 
+                                        class="px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold rounded-xl hover:shadow-lg transition">
+                                    전송
+                                </button>
+                            </div>
+                            
+                            <!-- Quick Actions -->
+                            <div class="flex gap-2 mt-3">
+                                <button onclick="sendPredefinedMessage('상담사 연결해주세요')" 
+                                        class="text-xs px-3 py-1.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition">
+                                    🙋 상담사 연결
+                                </button>
+                                <button onclick="sendPredefinedMessage('감사합니다')" 
+                                        class="text-xs px-3 py-1.5 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 transition">
+                                    👍 만족
+                                </button>
+                                <button onclick="showIntentAnalysis()" 
+                                        class="text-xs px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition">
+                                    🔍 의도 분석
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Bottom Info -->
+        <div class="mt-8 bg-white rounded-2xl p-6 shadow-sm">
+            <div class="grid md:grid-cols-3 gap-6">
+                <div>
+                    <h3 class="font-bold mb-3">🤖 기술 스펙</h3>
+                    <ul class="space-y-1 text-sm text-gray-600">
+                        <li>• Upstage Solar-10.7B 기반</li>
+                        <li>• 한국어 CS 10만건 파인튜닝</li>
+                        <li>• RAG (지식베이스 연동)</li>
+                        <li>• 실시간 감정 분석</li>
+                    </ul>
+                </div>
+                <div>
+                    <h3 class="font-bold mb-3">✨ 주요 기능</h3>
+                    <ul class="space-y-1 text-sm text-gray-600">
+                        <li>• 존댓말 7단계 자동 조절</li>
+                        <li>• 업종별 전문 용어 이해</li>
+                        <li>• 다중 턴 대화 컨텍스트 유지</li>
+                        <li>• 민감 정보 자동 마스킹</li>
+                    </ul>
+                </div>
+                <div>
+                    <h3 class="font-bold mb-3">📈 예상 효과</h3>
+                    <ul class="space-y-1 text-sm text-gray-600">
+                        <li>• CS 비용 50% 절감</li>
+                        <li>• 응답 시간 90% 단축</li>
+                        <li>• 고객 만족도 30% 향상</li>
+                        <li>• 24/7 무중단 서비스</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Intent Analysis Modal -->
+    <div id="intent-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50">
+        <div class="bg-white rounded-2xl max-w-lg w-full p-6">
+            <h3 class="text-xl font-bold mb-4">의도 분석 결과</h3>
+            <div id="intent-analysis" class="space-y-3">
+                <!-- Analysis will be inserted here -->
+            </div>
+            <button onclick="closeIntentModal()" class="mt-6 w-full py-3 bg-gray-900 text-white rounded-lg font-semibold">
+                닫기
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // Demo State
+        let messageCount = 0;
+        let resolvedCount = 0;
+        let currentIntent = null;
+        let conversationContext = [];
+
+        // Knowledge Base
+        const knowledgeBase = {
+            delivery: {
+                keywords: ['배송', '주문', '언제', '도착', '안 왔', '안왔'],
+                responses: [
+                    '주문번호를 확인해드리겠습니다. 주문번호나 주문자명을 알려주시겠어요?',
+                    '배송 조회 결과, 현재 배송 중이며 오늘 오후에 도착 예정입니다.',
+                    '죄송합니다. 예상보다 배송이 지연되고 있습니다. 긴급 배송으로 변경해드릴까요?'
+                ],
+                intent: 'delivery_tracking',
+                sentiment: 'neutral'
+            },
+            refund: {
+                keywords: ['환불', '돈', '취소', '반품'],
+                responses: [
+                    '환불을 도와드리겠습니다. 주문번호와 환불 사유를 알려주시겠어요?',
+                    '확인되었습니다. 환불 처리를 시작하겠습니다. 영업일 기준 3-5일 소요됩니다.',
+                    '죄송합니다. 해당 상품은 이미 배송 완료되어 반품 절차가 필요합니다. 반품 접수를 도와드릴까요?'
+                ],
+                intent: 'refund_request',
+                sentiment: 'negative'
+            },
+            plan_change: {
+                keywords: ['요금제', '변경', '플랜', '요금', '바꾸'],
+                responses: [
+                    '요금제 변경을 도와드리겠습니다. 현재 사용 중인 요금제는 스탠다드 플랜입니다.',
+                    '어떤 요금제로 변경을 원하시나요? 프리미엄과 베이직 플랜이 있습니다.',
+                    '프리미엄 플랜으로 변경 완료했습니다. 다음 결제일부터 적용됩니다.'
+                ],
+                intent: 'plan_change',
+                sentiment: 'neutral'
+            },
+            payment: {
+                keywords: ['결제', '오류', '카드', '에러', '실패'],
+                responses: [
+                    '결제 오류로 불편을 드려 죄송합니다. 어떤 오류 메시지가 표시되나요?',
+                    '카드 정보를 다시 확인해주세요. 유효기간과 CVC 번호가 정확한지 확인 부탁드립니다.',
+                    '시스템 점검으로 일시적인 오류가 있었습니다. 지금 다시 시도해주시면 정상 처리됩니다.'
+                ],
+                intent: 'payment_issue',
+                sentiment: 'frustrated'
+            },
+            agent: {
+                keywords: ['상담사', '연결', '사람', '직원', '전화'],
+                responses: [
+                    '상담사 연결을 도와드리겠습니다. 잠시만 기다려주세요.',
+                    '현재 모든 상담사가 통화 중입니다. 예상 대기시간은 5분입니다.',
+                    '상담사 연결이 완료되었습니다. 곧 연락드리겠습니다.'
+                ],
+                intent: 'agent_transfer',
+                sentiment: 'escalation'
+            },
+            thanks: {
+                keywords: ['감사', '고맙', '고마워', '친절'],
+                responses: [
+                    '도움이 되어 기쁩니다! 다른 문의사항이 있으시면 언제든 말씀해주세요. 😊',
+                    '고객님께 만족스러운 서비스를 제공할 수 있어 감사합니다!',
+                    '언제든 도움이 필요하시면 찾아주세요. 좋은 하루 되세요!'
+                ],
+                intent: 'appreciation',
+                sentiment: 'positive'
+            }
+        };
+
+        // Generate AI Response
+        function generateAIResponse(userMessage) {
+            const message = userMessage.toLowerCase();
+            
+            for (const [key, data] of Object.entries(knowledgeBase)) {
+                if (data.keywords.some(keyword => message.includes(keyword))) {
+                    currentIntent = data;
+                    const responseIndex = Math.min(conversationContext.filter(m => m.intent === key).length, data.responses.length - 1);
+                    
+                    updateMetrics(data.sentiment);
+                    
+                    return {
+                        text: data.responses[responseIndex],
+                        intent: data.intent,
+                        confidence: 0.85 + Math.random() * 0.14,
+                        responseTime: 0.5 + Math.random() * 0.8
+                    };
+                }
+            }
+            
+            return {
+                text: '문의 내용을 더 자세히 설명해주시겠어요? 최선을 다해 도와드리겠습니다.',
+                intent: 'unclear',
+                confidence: 0.65,
+                responseTime: 0.8
+            };
+        }
+
+        // Send Message
+        function sendMessage() {
+            const input = document.getElementById('user-input');
+            const message = input.value.trim();
+            
+            if (!message) return;
+            
+            addMessage(message, 'user');
+            input.value = '';
+            showTypingIndicator();
+            
+            setTimeout(() => {
+                removeTypingIndicator();
+                const response = generateAIResponse(message);
+                addMessage(response.text, 'ai', response);
+                
+                conversationContext.push({
+                    role: 'user',
+                    content: message,
+                    intent: response.intent
+                });
+                
+                messageCount++;
+                if (response.intent !== 'unclear' && response.intent !== 'agent_transfer') {
+                    resolvedCount++;
+                }
+                updateDashboard();
+            }, 1000 + Math.random() * 500);
+        }
+
+        // Send Predefined Message
+        function sendPredefinedMessage(message) {
+            document.getElementById('user-input').value = message;
+            sendMessage();
+        }
+
+        // Add Message
+        function addMessage(text, sender, metadata = {}) {
+            const chatContainer = document.getElementById('chat-container');
+            const messageDiv = document.createElement('div');
+            
+            if (sender === 'user') {
+                messageDiv.className = 'flex gap-3 justify-end message-animation';
+                messageDiv.innerHTML = `
+                    <div class="flex-1 text-right">
+                        <div class="inline-block bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-2xl rounded-tr-none p-4 max-w-md">
+                            <p class="text-sm">${text}</p>
+                        </div>
+                    </div>
+                    <div class="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center">
+                        <span class="text-sm font-bold">고객</span>
+                    </div>
+                `;
+            } else {
+                messageDiv.className = 'flex gap-3 message-animation';
+                messageDiv.innerHTML = `
+                    <div class="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-full flex items-center justify-center text-white font-bold">
+                        AI
+                    </div>
+                    <div class="flex-1">
+                        <div class="bg-gray-100 rounded-2xl rounded-tl-none p-4 max-w-md">
+                            <p class="text-sm">${text}</p>
+                        </div>
+                        ${metadata.responseTime ? `
+                        <div class="flex items-center gap-3 mt-2 text-xs text-gray-500">
+                            <span>응답시간: ${metadata.responseTime.toFixed(1)}초</span>
+                            <span>•</span>
+                            <span>신뢰도: ${Math.round(metadata.confidence * 100)}%</span>
+                            ${metadata.intent ? `
+                            <span>•</span>
+                            <span>의도: ${metadata.intent}</span>
+                            ` : ''}
+                        </div>
+                        ` : ''}
+                    </div>
+                `;
+            }
+            
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        // Typing Indicator
+        function showTypingIndicator() {
+            const chatContainer = document.getElementById('chat-container');
+            const typingDiv = document.createElement('div');
+            typingDiv.id = 'typing-indicator';
+            typingDiv.className = 'flex gap-3 message-animation';
+            typingDiv.innerHTML = `
+                <div class="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-full flex items-center justify-center text-white font-bold">
+                    AI
+                </div>
+                <div class="bg-gray-100 rounded-2xl rounded-tl-none p-4">
+                    <div class="flex gap-1">
+                        <span class="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></span>
+                        <span class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.1s"></span>
+                        <span class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.2s"></span>
+                    </div>
+                </div>
+            `;
+            chatContainer.appendChild(typingDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function removeTypingIndicator() {
+            const typingIndicator = document.getElementById('typing-indicator');
+            if (typingIndicator) {
+                typingIndicator.remove();
+            }
+        }
+
+        // Update Metrics
+        function updateMetrics(sentiment) {
+            const responseTime = (0.5 + Math.random() * 0.8).toFixed(1);
+            document.getElementById('response-time').textContent = responseTime + '초';
+            
+            const accuracy = Math.round(85 + Math.random() * 14);
+            document.getElementById('accuracy').textContent = accuracy + '%';
+            
+            const sentimentMap = {
+                'positive': '긍정',
+                'neutral': '중립',
+                'negative': '부정',
+                'frustrated': '불만',
+                'escalation': '상담사 요청'
+            };
+            document.getElementById('sentiment').textContent = sentimentMap[sentiment] || '중립';
+        }
+
+        // Update Dashboard
+        function updateDashboard() {
+            document.getElementById('total-messages').textContent = messageCount;
+            const resolutionRate = messageCount > 0 ? Math.round((resolvedCount / messageCount) * 100) : 0;
+            document.getElementById('resolution-rate').textContent = resolutionRate + '%';
+        }
+
+        // Intent Analysis
+        function showIntentAnalysis() {
+            if (!currentIntent) {
+                alert('먼저 대화를 시작해주세요.');
+                return;
+            }
+            
+            const modal = document.getElementById('intent-modal');
+            const analysis = document.getElementById('intent-analysis');
+            
+            analysis.innerHTML = `
+                <div class="bg-gray-50 rounded-lg p-4">
+                    <h4 class="font-semibold mb-2">주요 의도</h4>
+                    <p class="text-sm text-gray-600">${currentIntent.intent}</p>
+                </div>
+                <div class="bg-gray-50 rounded-lg p-4">
+                    <h4 class="font-semibold mb-2">감정 상태</h4>
+                    <p class="text-sm text-gray-600">${currentIntent.sentiment}</p>
+                </div>
+                <div class="bg-gray-50 rounded-lg p-4">
+                    <h4 class="font-semibold mb-2">키워드 매칭</h4>
+                    <p class="text-sm text-gray-600">${currentIntent.keywords.join(', ')}</p>
+                </div>
+                <div class="bg-gray-50 rounded-lg p-4">
+                    <h4 class="font-semibold mb-2">대화 컨텍스트</h4>
+                    <p class="text-sm text-gray-600">총 ${conversationContext.length}턴 대화 진행</p>
+                </div>
+            `;
+            
+            modal.classList.remove('hidden');
+        }
+
+        function closeIntentModal() {
+            document.getElementById('intent-modal').classList.add('hidden');
+        }
+
+        // Reset Demo
+        function resetDemo() {
+            document.getElementById('chat-container').innerHTML = `
+                <div class="flex gap-3 message-animation">
+                    <div class="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-full flex items-center justify-center text-white font-bold">
+                        AI
+                    </div>
+                    <div class="flex-1">
+                        <div class="bg-gray-100 rounded-2xl rounded-tl-none p-4 max-w-md">
+                            <p class="text-sm">안녕하세요! 무엇을 도와드릴까요? 🙂</p>
+                            <p class="text-xs text-gray-500 mt-2">배송, 환불, 교환, 제품 문의 등 무엇이든 물어보세요.</p>
+                        </div>
+                        <div class="flex items-center gap-3 mt-2 text-xs text-gray-500">
+                            <span>응답시간: 0.3초</span>
+                            <span>•</span>
+                            <span>신뢰도: 100%</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            messageCount = 0;
+            resolvedCount = 0;
+            currentIntent = null;
+            conversationContext = [];
+            updateDashboard();
+        }
+
+        // Handle Enter Key
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            updateDashboard();
+        });
+    </script>
+</body>
+</html>

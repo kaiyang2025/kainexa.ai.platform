@@ -1,0 +1,35 @@
+# Common
+.DS_Store
+*.log
+.env
+.env.*
+*.sqlite
+# Node
+node_modules/
+dist/
+build/
+.next/
+# Python
+__pycache__/
+*.pyc
+.venv/
+# === Large binaries / secrets / builds ===
+# Model weights
+kainexa-core/models/
+*.safetensors
+*.bin
+*.pth
+*.pt
+*.ckpt
+
+# Package/build
+node_modules/
+dist/
+build/
+__pycache__/
+*.log
+.venv/
+
+# Secrets
+.env
+.env.*

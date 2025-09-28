@@ -1,0 +1,29 @@
+{
+  "name": "@kainexa/studio-web",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "next": "14.0.4",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "reactflow": "^11.10.1",
+    "zustand": "^4.4.7",
+    "axios": "^1.6.2",
+    "@kainexa/workflow-engine": "workspace:*",
+    "@kainexa/ui": "workspace:*",
+    "@kainexa/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.4",
+    "@types/react": "^18.2.45",
+    "typescript": "^5.3.3",
+    "tailwindcss": "^3.3.6",
+    "autoprefixer": "^10.4.16",
+    "postcss": "^8.4.32"
+  }
+}

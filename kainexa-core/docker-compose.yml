@@ -1,0 +1,76 @@
+
+# docker-compose.yml - Database Services Only
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: kainexa-postgres
+    environment:
+      POSTGRES_USER: kainexa
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: kainexa_db
+      POSTGRES_HOST_AUTH_METHOD: md5
+    command: 
+      - "postgres"
+      - "-c"
+      - "listen_addresses=*"
+    ports:
+      - "0.0.0.0:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - kainexa-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kainexa"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Redis Cache  
+  redis:
+    image: redis:7-alpine
+    container_name: kainexa-redis
+    ports:
+      - "0.0.0.0:6380:6379"  # 6380 -> 6379로 변경 (표준 포트 사용)
+    volumes:
+      - redis_data:/data
+    networks:
+      - kainexa-network
+    command: redis-server --appendonly yes --bind 0.0.0.0 --protected-mode no
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Qdrant Vector Database
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: kainexa-qdrant
+    ports:
+      - "0.0.0.0:6333:6333"
+      - "0.0.0.0:6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - kainexa-network
+    environment:
+      - QDRANT__SERVICE__HTTP_PORT=6333
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+networks:
+  kainexa-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  qdrant_data:

@@ -1,0 +1,16 @@
+# GPU dependencies for Kainexa
+# Install PyTorch first with:
+# pip install torch==2.1.0+cu118 torchvision==0.16.0+cu118 torchaudio==2.1.0+cu118 --index-url https://download.pytorch.org/whl/cu118
+
+deepspeed==0.12.0
+accelerate==0.24.0
+fairscale==0.4.13
+pynvml==11.5.0
+gpustat==1.1.1
+bitsandbytes==0.41.0
+triton==2.1.0
+auto-gptq==0.5.1
+optimum==1.14.0
+transformers==4.35.0
+sentencepiece==0.1.99
+protobuf==3.20.3

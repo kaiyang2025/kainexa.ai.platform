@@ -1,0 +1,419 @@
+"""
+통합 API 엔드포인트 - 한국어 전용
+"""
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
+from typing import Dict, Any, List, Optional
+from datetime import datetime, timezone
+from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import BaseModel, Field
+import traceback
+import logging
+
+from src.core.database import get_db
+from src.core.session_manager import SessionManager, ConversationManager
+from src.models.solar_llm import SolarLLM
+from src.governance.rag_pipeline import RAGGovernance, DocumentMetadata, AccessLevel
+from src.scenarios.production_monitoring import ProductionMonitoringAgent
+from src.scenarios.predictive_maintenance import PredictiveMaintenanceAgent
+from src.scenarios.quality_control import QualityControlAgent
+
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/api/v1", tags=["integrated"])
+
+# Pydantic 모델
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+class ChatRequest(BaseModel):
+    message: str
+    conversation_id: Optional[str] = None
+    context: Dict[str, Any] = Field(default_factory=dict)
+    user_email: Optional[str] = None
+
+class DocumentUploadResponse(BaseModel):
+    document_id: str
+    title: str
+    chunks: int
+    status: str
+
+# 전역 인스턴스
+llm = SolarLLM()
+rag = RAGGovernance()
+
+@router.post("/login")
+async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
+    """로그인"""
+    from sqlalchemy import select
+    from src.core.models import User
+    
+    query = select(User).where(User.email == request.email)
+    result = await db.execute(query)
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    session_manager = SessionManager(db)
+    session_data = await session_manager.create_session(
+        user_id=str(user.id),
+        ip_address="127.0.0.1"
+    )
+    
+    return {
+        "user_id": str(user.id),
+        "email": user.email,
+        "role": user.role,
+        "session": session_data
+    }
+
+@router.post("/chat")
+async def chat(
+    request_data: ChatRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """채팅 엔드포인트 - 한국어 전용"""
+    try:
+        # 사용자 식별
+        user_email = (
+            request.headers.get("X-User-Email") or 
+            request_data.user_email or 
+            "demo@kainexa.local"
+        )
+        
+        # 대화 관리자
+        conv_manager = ConversationManager(db)
+        
+        # 대화 ID 처리
+        conversation_id = request_data.conversation_id
+        if not conversation_id:
+            # 새 대화 생성 (세션 없이)
+            from src.core.models import Conversation
+            import uuid
+            
+            conversation = Conversation(
+                id=uuid.uuid4(),
+                title=f"대화 {datetime.now():%Y-%m-%d %H:%M}",
+                context={},
+                status="active"
+            )
+            db.add(conversation)
+            await db.commit()
+            conversation_id = str(conversation.id)
+        
+        # 사용자 메시지 저장
+        await conv_manager.add_message(
+            conversation_id=conversation_id,
+            role="user",
+            content=request_data.message
+        )
+        
+        # RAG 검색 (옵션)
+        rag_context = ""
+        try:
+            rag_results = await rag.retrieve(
+                query=request_data.message,
+                k=3,
+                user_access_level=AccessLevel.INTERNAL
+            )
+            if rag_results:
+                rag_context = "\n".join([
+                    r.get('text', '')[:200] 
+                    for r in rag_results[:2]
+                ])
+        except Exception as e:
+            logger.warning(f"RAG retrieval failed: {e}")
+            rag_results = []
+        
+        # LLM 응답 생성
+        try:
+            # 앱 상태에서 LLM 가져오기 또는 전역 사용
+            _llm = getattr(request.app.state, "llm", None) or llm
+            _llm.load()
+            
+            # 한국어 전용 프롬프트
+            if rag_context:
+                prompt = f"""당신은 한국 제조업 전문 AI 어시스턴트입니다.
+반드시 한국어로만 답변하세요. 영어를 사용하지 마세요.
+
+[참고 정보]
+{rag_context}
+
+[질문]
+{request_data.message}
+
+[답변] 한국어로만:"""
+            else:
+                prompt = f"""당신은 한국 제조업 전문 AI 어시스턴트입니다.
+반드시 한국어로만 답변하세요. 영어를 사용하지 마세요.
+
+[질문]
+{request_data.message}
+
+[답변] 한국어로만:"""
+            
+            response_text = _llm.generate(
+                prompt,
+                max_new_tokens=400,
+                temperature=0.3,
+                do_sample=False  # 그리디
+            )
+            
+            # 응답이 비어있으면 기본 응답
+            if not response_text.strip():
+                response_text = self._get_fallback_response(request_data.message)
+                
+        except Exception as e:
+            logger.error(f"LLM generation failed: {e}")
+            # LLM 실패시 템플릿 응답
+            response_text = self._get_fallback_response(request_data.message)
+        
+        # 어시스턴트 메시지 저장
+        await conv_manager.add_message(
+            conversation_id=conversation_id,
+            role="assistant",
+            content=response_text
+        )
+        
+        return {
+            "conversation_id": conversation_id,
+            "response": response_text,
+            "sources": [r.get("source", "") for r in (rag_results or [])],
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Chat error: {e}\n{traceback.format_exc()}")
+        # 에러시에도 기본 응답 반환
+        return {
+            "conversation_id": "",
+            "response": "죄송합니다. 일시적인 문제가 발생했습니다. 잠시 후 다시 시도해주세요.",
+            "sources": [],
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+
+def _get_fallback_response(query: str) -> str:
+    """LLM 실패시 폴백 응답"""
+    query_lower = query.lower()
+    
+    if "oee" in query_lower or "종합설비효율" in query_lower:
+        return """스마트 팩토리에서 종합설비효율(OEE)을 개선하는 방법은 다음과 같습니다:
+
+1. **가용성 향상**: 계획된 생산 시간 대비 실제 가동 시간을 늘립니다.
+   - 예방 정비를 통한 고장 감소
+   - 신속한 고장 대응 체계 구축
+   
+2. **성능 개선**: 이론적 생산량 대비 실제 생산량을 높입니다.
+   - 병목 공정 개선
+   - 작업자 숙련도 향상
+   
+3. **품질 제고**: 전체 생산량 대비 양품 비율을 증가시킵니다.
+   - 실시간 품질 모니터링
+   - 불량 원인 분석 및 개선
+
+사물인터넷 센서와 기계학습을 활용하면 더욱 효과적인 개선이 가능합니다."""
+    
+    elif "예측" in query_lower or "정비" in query_lower:
+        return """예측적 유지보수는 설비 고장을 사전에 예방하는 스마트한 정비 방법입니다.
+
+주요 특징:
+- 센서 데이터 실시간 모니터링
+- 고장 패턴 분석 및 예측
+- 최적 정비 시점 결정
+- 불필요한 정비 비용 절감
+
+이를 통해 설비 가동률을 높이고 유지보수 비용을 절감할 수 있습니다."""
+    
+    elif "품질" in query_lower or "불량" in query_lower:
+        return """품질 관리 개선 방안:
+
+1. **실시간 품질 검사**: 비전 검사 시스템 도입
+2. **통계적 공정 관리**: 관리도를 활용한 공정 모니터링
+3. **근본 원인 분석**: 불량 발생 원인을 체계적으로 분석
+4. **지속적 개선**: PDCA 사이클 적용
+
+이러한 방법들을 통해 불량률을 감소시키고 품질을 향상시킬 수 있습니다."""
+    
+    else:
+        return """제조업 스마트 팩토리와 관련하여 도움을 드릴 수 있습니다.
+
+다음과 같은 주제에 대해 질문해주세요:
+- 종합설비효율(OEE) 개선
+- 예측적 유지보수
+- 품질 관리
+- 생산 모니터링
+- 스마트 팩토리 구축
+
+구체적인 질문을 주시면 더 자세한 답변을 드리겠습니다."""
+
+# 나머지 엔드포인트들은 동일하게 유지...
+
+@router.post("/documents/upload")
+async def upload_document(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db)
+):
+    """문서 업로드"""
+    content = await file.read()
+    text_content = content.decode('utf-8')
+    
+    metadata = DocumentMetadata(
+        doc_id=f"upload_{datetime.now():%Y%m%d_%H%M%S}",
+        title=file.filename,
+        source=f"upload/{file.filename}",
+        created_at=datetime.now(timezone.utc),
+        access_level=AccessLevel.INTERNAL,
+        tags=["upload"],
+        language="ko"
+    )
+    
+    success = await rag.add_document(text_content, metadata)
+    
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to process document")
+    
+    return DocumentUploadResponse(
+        document_id=metadata.doc_id,
+        title=metadata.title,
+        chunks=len(text_content) // 500,
+        status="success"
+    )
+
+@router.get("/documents/search")
+async def search_documents(
+    query: str,
+    limit: int = 5,
+    db: AsyncSession = Depends(get_db)
+):
+    """문서 검색"""
+    results = await rag.retrieve(
+        query=query,
+        k=limit,
+        user_access_level=AccessLevel.INTERNAL
+    )
+    
+    return {
+        "query": query,
+        "results": results,
+        "count": len(results)
+    }
+
+@router.post("/scenarios/production")
+async def run_production_scenario(
+    query: str = "생산 현황 보고해줘",
+    request: Request = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """생산 모니터링 시나리오"""
+    try:
+        _llm = getattr(request.app.state, "llm", None) if request else None
+        agent = ProductionMonitoringAgent(llm=_llm or llm, rag=rag)
+        result = await agent.analyze_production(query)
+        return result
+    except Exception as e:
+        logger.error(f"Production scenario error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/scenarios/maintenance")
+async def run_maintenance_scenario(
+    equipment_id: str = "CNC_007",
+    request: Request = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """예측적 유지보수 시나리오"""
+    try:
+        _llm = getattr(request.app.state, "llm", None) if request else None
+        agent = PredictiveMaintenanceAgent(llm=_llm or llm, rag=rag)
+        result = await agent.predict_failure(equipment_id)
+        return result
+    except Exception as e:
+        logger.error(f"Maintenance scenario error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/scenarios/quality")
+async def run_quality_scenario(
+    request: Request = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """품질 관리 시나리오"""
+    try:
+        _llm = getattr(request.app.state, "llm", None) if request else None
+        agent = QualityControlAgent(llm=_llm or llm, rag=rag)
+        result = await agent.analyze_quality()
+        return result
+    except Exception as e:
+        logger.error(f"Quality scenario error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/conversations/{conversation_id}/history")
+async def get_conversation_history(
+    conversation_id: str,
+    limit: int = 20,
+    db: AsyncSession = Depends(get_db)
+):
+    """대화 기록 조회"""
+    conv_manager = ConversationManager(db)
+    messages = await conv_manager.get_conversation_history(
+        conversation_id,
+        limit=limit
+    )
+    
+    return {
+        "conversation_id": conversation_id,
+        "messages": [
+            {
+                "id": str(msg.id),
+                "role": msg.role,
+                "content": msg.content,
+                "created_at": msg.created_at.isoformat()
+            }
+            for msg in messages
+        ]
+    }
+
+@router.get("/health/full")
+async def full_health_check():
+    """전체 시스템 헬스체크"""
+    health_status = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "services": {}
+    }
+    
+    # LLM 체크
+    try:
+        llm.load()
+        memory = llm.get_memory_usage()
+        health_status["services"]["llm"] = {
+            "status": "healthy",
+            "memory": memory
+        }
+    except Exception as e:
+        health_status["services"]["llm"] = {
+            "status": "unhealthy",
+            "error": str(e)
+        }
+    
+    # RAG 체크
+    try:
+        report = rag.get_governance_report()
+        health_status["services"]["rag"] = {
+            "status": "healthy",
+            "collections": report.get("collection_stats", {})
+        }
+    except Exception as e:
+        health_status["services"]["rag"] = {
+            "status": "unhealthy",
+            "error": str(e)
+        }
+    
+    # GPU 체크
+    import torch
+    health_status["services"]["gpu"] = {
+        "available": torch.cuda.is_available(),
+        "count": torch.cuda.device_count() if torch.cuda.is_available() else 0
+    }
+    
+    return health_status
