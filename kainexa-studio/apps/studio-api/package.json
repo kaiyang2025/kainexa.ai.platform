@@ -12,8 +12,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "@kainexa/workflow-engine": "workspace:*",
-    "@kainexa/shared": "workspace:*",
-    "@kainexa/integrations": "workspace:*"
+    "@kainexa/shared": "workspace:*"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
