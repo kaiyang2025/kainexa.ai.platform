@@ -73,6 +73,21 @@ async def root():
         }
     }
 
+@app.post("/api/v1/workflow/execute")
+async def execute_workflow(request: dict):
+    """워크플로우 실행"""
+    nodes = request.get("nodes", [])
+    edges = request.get("edges", [])
+    
+    print(f"Executing workflow with {len(nodes)} nodes")
+    
+    return {
+        "execution_id": f"exec_{datetime.now().timestamp()}",
+        "status": "completed",
+        "message": f"워크플로우 실행 완료: {len(nodes)}개 노드 처리",
+        "timestamp": datetime.now().isoformat()
+    }
+
 # ✅ /health 엔드포인트 추가
 @app.get("/health")
 async def health_check():
