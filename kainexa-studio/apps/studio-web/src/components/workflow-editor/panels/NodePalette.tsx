@@ -1,4 +1,4 @@
-// apps/studio-web/src/components/workflow-editor/panels/NodePalette.tsx
+// src/components/workflow-editor/panels/NodePalette.tsx
 import React from 'react';
 
 interface NodeItem {
@@ -17,17 +17,25 @@ const nodes: NodeItem[] = [
 ];
 
 export default function NodePalette() {
-  const payload = JSON.stringify({ type: node.type, label: node.label });
-  e.dataTransfer.setData('application/reactflow', payload);
-  e.dataTransfer.setData('text/plain', payload);
-  e.dataTransfer.effectAllowed = 'move';
-};
+  const onDragStart = (e: React.DragEvent, node: NodeItem) => {
+    const payload = JSON.stringify({ type: node.type, label: node.label });
+    e.dataTransfer.setData('application/reactflow', payload);
+    e.dataTransfer.setData('text/plain', payload); // 호환용
+    e.dataTransfer.effectAllowed = 'move';
+  }; // ← 여기가 반드시 닫혀야 합니다.
 
   return (
     <div
       className="node-palette"
-      style={{ width: 250, backgroundColor: '#f9fafb', borderRight: '1px solid #e5e7eb',
-               padding: 16, height: '100%', overflowY: 'auto', userSelect: 'none' }}
+      style={{
+        width: 250,
+        backgroundColor: '#f9fafb',
+        borderRight: '1px solid #e5e7eb',
+        padding: 16,
+        height: '100%',
+        overflowY: 'auto',
+        userSelect: 'none',
+      }}
     >
       <h2 style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 16, color: '#111827' }}>
         노드 팔레트
@@ -40,20 +48,35 @@ export default function NodePalette() {
             draggable
             onDragStart={(e) => onDragStart(e, node)}
             style={{
-              padding: 12, marginBottom: 8, background: '#fff',
-              border: `2px solid ${node.color}`, borderLeft: `5px solid ${node.color}`,
-              borderRadius: 6, cursor: 'grab', transition: 'transform .2s, box-shadow .2s',
+              padding: 12,
+              marginBottom: 8,
+              background: '#fff',
+              border: `2px solid ${node.color}`,
+              borderLeft: `5px solid ${node.color}`,
+              borderRadius: 6,
+              cursor: 'grab',
+              transition: 'transform .2s, box-shadow .2s',
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, pointerEvents: 'none' }}>
               <span style={{ fontSize: 20 }}>{node.icon}</span>
-              <span style={{ fontSize: 14, fontWeight: 500, color: '#374151' }}>{node.label}</span>
+              <span style={{ fontSize: 14, fontWeight: 500, color: '#374151' }}>
+                {node.label}
+              </span>
             </div>
           </div>
         ))}
       </div>
 
-      <div style={{ padding: 12, background: '#dbeafe', borderRadius: 6, fontSize: 12, color: '#1e40af' }}>
+      <div
+        style={{
+          padding: 12,
+          background: '#dbeafe',
+          borderRadius: 6,
+          fontSize: 12,
+          color: '#1e40af',
+        }}
+      >
         💡 카드를 캔버스로 드래그하여 놓으세요
       </div>
     </div>
