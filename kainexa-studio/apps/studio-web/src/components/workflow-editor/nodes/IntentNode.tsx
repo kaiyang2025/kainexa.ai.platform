@@ -1,8 +1,4 @@
-// ============================
-// 2. 커스텀 노드 컴포넌트 - IntentNode
 // apps/studio-web/src/components/workflow-editor/nodes/IntentNode.tsx
-// ============================
-
 import React, { memo } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
 import { Brain } from 'lucide-react';
@@ -16,7 +12,7 @@ const IntentNode = memo(({ data, isConnectable }: NodeProps) => {
       </div>
       
       <div className="p-3">
-        <div className="text-sm text-gray-700">{data.label}</div>
+        <div className="text-sm text-gray-700">{data.label || '의도 분류'}</div>
         {data.config?.intents && (
           <div className="mt-2 text-xs text-gray-500">
             {data.config.intents.length}개 의도 정의됨
