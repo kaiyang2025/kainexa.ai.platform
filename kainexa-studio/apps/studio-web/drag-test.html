@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>드래그 진단 도구</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            margin: 20px;
+            background: #f0f0f0;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            border-bottom: 2px solid #3b82f6;
+            padding-bottom: 10px;
+        }
+        .test-section {
+            margin: 30px 0;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        .drag-box {
+            width: 200px;
+            height: 100px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            cursor: grab;
+            margin: 20px 0;
+            font-weight: bold;
+            transition: transform 0.2s;
+        }
+        .drag-box:active {
+            cursor: grabbing;
+            transform: scale(0.95);
+        }
+        .drop-zone {
+            width: 100%;
+            height: 150px;
+            border: 3px dashed #cbd5e0;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 20px 0;
+            transition: all 0.3s;
+            background: white;
+        }
+        .drop-zone.active {
+            border-color: #3b82f6;
+            background: #eff6ff;
+        }
+        .status {
+            padding: 15px;
+            border-radius: 6px;
+            margin: 10px 0;
+            font-family: 'Courier New', monospace;
+        }
+        .status.success {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        .status.error {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        .status.info {
+            background: #e0e7ff;
+            color: #3730a3;
+        }
+        .event-log {
+            background: #1f2937;
+            color: #10b981;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+        .event-log div {
+            padding: 2px 0;
+        }
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 5px;
+        }
+        button:hover {
+            background: #2563eb;
+        }
+        .diagnostic {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin: 20px 0;
+        }
+        .diagnostic-item {
+            padding: 10px;
+            background: #f3f4f6;
+            border-radius: 6px;
+        }
+        .diagnostic-item span {
+            font-weight: bold;
+        }
+        #mouse-test {
+            width: 300px;
+            height: 100px;
+            background: #fbbf24;
+            margin: 20px 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 드래그 앤 드롭 진단 도구</h1>
+        
+        <!-- 시스템 정보 -->
+        <div class="test-section">
+            <h2>📊 시스템 정보</h2>
+            <div class="diagnostic">
+                <div class="diagnostic-item">
+                    브라우저: <span id="browser-info">확인 중...</span>
+                </div>
+                <div class="diagnostic-item">
+                    OS: <span id="os-info">확인 중...</span>
+                </div>
+                <div class="diagnostic-item">
+                    터치 지원: <span id="touch-support">확인 중...</span>
+                </div>
+                <div class="diagnostic-item">
+                    드래그 API: <span id="drag-api">확인 중...</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 마우스 이벤트 테스트 -->
+        <div class="test-section">
+            <h2>🖱️ 마우스 이벤트 테스트</h2>
+            <p>아래 박스를 클릭하고 마우스 버튼을 누른 채로 움직여보세요:</p>
+            <div id="mouse-test">마우스 테스트 영역</div>
+            <div class="status info" id="mouse-status">마우스 이벤트 대기 중...</div>
+        </div>
+
+        <!-- HTML5 드래그 테스트 -->
+        <div class="test-section">
+            <h2>📦 HTML5 드래그 테스트</h2>
+            <p>아래 보라색 박스를 드래그하여 점선 영역에 놓아보세요:</p>
+            
+            <div class="drag-box" draggable="true" id="drag-source">
+                드래그 해보세요
+            </div>
+            
+            <div class="drop-zone" id="drop-target">
+                여기에 놓으세요
+            </div>
+            
+            <div class="status info" id="drag-status">드래그 이벤트 대기 중...</div>
+        </div>
+
+        <!-- 대체 드래그 구현 -->
+        <div class="test-section">
+            <h2>🔄 대체 드래그 구현 (마우스 이벤트)</h2>
+            <p>HTML5 드래그가 작동하지 않을 경우 사용할 수 있는 대체 방법입니다:</p>
+            
+            <div id="alt-drag" style="
+                width: 150px;
+                height: 80px;
+                background: #10b981;
+                color: white;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 8px;
+                cursor: move;
+                position: relative;
+                user-select: none;
+            ">
+                마우스로 이동
+            </div>
+            
+            <div class="status info" id="alt-status">대체 드래그 대기 중...</div>
+        </div>
+
+        <!-- 이벤트 로그 -->
+        <div class="test-section">
+            <h2>📜 이벤트 로그</h2>
+            <button onclick="clearLog()">로그 지우기</button>
+            <button onclick="testAll()">모든 테스트 실행</button>
+            <div class="event-log" id="event-log"></div>
+        </div>
+
+        <!-- 해결 방법 -->
+        <div class="test-section">
+            <h2>💡 문제 해결 제안</h2>
+            <div id="suggestions"></div>
+        </div>
+    </div>
+
+    <script>
+        // 로그 함수
+        const logEvent = (message, type = 'info') => {
+            const log = document.getElementById('event-log');
+            const time = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.style.color = type === 'error' ? '#ef4444' : type === 'success' ? '#10b981' : '#60a5fa';
+            entry.textContent = `[${time}] ${message}`;
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+        };
+
+        const clearLog = () => {
+            document.getElementById('event-log').innerHTML = '';
+            logEvent('로그 초기화됨');
+        };
+
+        // 시스템 정보 확인
+        const checkSystem = () => {
+            // 브라우저 정보
+            const userAgent = navigator.userAgent;
+            let browserInfo = 'Unknown';
+            if (userAgent.indexOf('Chrome') > -1) browserInfo = 'Chrome';
+            else if (userAgent.indexOf('Firefox') > -1) browserInfo = 'Firefox';
+            else if (userAgent.indexOf('Safari') > -1) browserInfo = 'Safari';
+            else if (userAgent.indexOf('Edge') > -1) browserInfo = 'Edge';
+            
+            document.getElementById('browser-info').textContent = browserInfo;
+            
+            // OS 정보
+            let osInfo = 'Unknown';
+            if (userAgent.indexOf('Win') > -1) osInfo = 'Windows';
+            else if (userAgent.indexOf('Mac') > -1) osInfo = 'macOS';
+            else if (userAgent.indexOf('Linux') > -1) osInfo = 'Linux';
+            else if (userAgent.indexOf('Android') > -1) osInfo = 'Android';
+            else if (userAgent.indexOf('iOS') > -1) osInfo = 'iOS';
+            
+            document.getElementById('os-info').textContent = osInfo;
+            
+            // 터치 지원
+            const touchSupport = 'ontouchstart' in window;
+            document.getElementById('touch-support').textContent = touchSupport ? '지원' : '미지원';
+            
+            // 드래그 API
+            const dragSupport = 'draggable' in document.createElement('div');
+            document.getElementById('drag-api').textContent = dragSupport ? '지원' : '미지원';
+            
+            logEvent(`시스템: ${browserInfo} on ${osInfo}`, 'info');
+            
+            return { browserInfo, osInfo, touchSupport, dragSupport };
+        };
+
+        // 마우스 이벤트 테스트
+        const setupMouseTest = () => {
+            const mouseTest = document.getElementById('mouse-test');
+            const mouseStatus = document.getElementById('mouse-status');
+            let isMouseDown = false;
+            
+            mouseTest.addEventListener('mousedown', (e) => {
+                isMouseDown = true;
+                mouseStatus.textContent = `마우스 다운: 버튼 ${e.button} at (${e.clientX}, ${e.clientY})`;
+                mouseStatus.className = 'status success';
+                logEvent(`마우스 다운 감지: 버튼 ${e.button}`, 'success');
+            });
+            
+            mouseTest.addEventListener('mousemove', (e) => {
+                if (isMouseDown) {
+                    mouseStatus.textContent = `드래그 중: (${e.clientX}, ${e.clientY})`;
+                }
+            });
+            
+            mouseTest.addEventListener('mouseup', (e) => {
+                isMouseDown = false;
+                mouseStatus.textContent = `마우스 업: at (${e.clientX}, ${e.clientY})`;
+                logEvent('마우스 업 감지', 'success');
+            });
+        };
+
+        // HTML5 드래그 테스트
+        const setupDragTest = () => {
+            const dragSource = document.getElementById('drag-source');
+            const dropTarget = document.getElementById('drop-target');
+            const dragStatus = document.getElementById('drag-status');
+            
+            // 드래그 소스 이벤트
+            dragSource.addEventListener('dragstart', (e) => {
+                dragStatus.textContent = '드래그 시작됨!';
+                dragStatus.className = 'status success';
+                e.dataTransfer.effectAllowed = 'copy';
+                e.dataTransfer.setData('text/plain', 'test-data');
+                logEvent('dragstart 이벤트 발생', 'success');
+            });
+            
+            dragSource.addEventListener('drag', (e) => {
+                // 드래그 중 (계속 발생)
+            });
+            
+            dragSource.addEventListener('dragend', (e) => {
+                dragStatus.textContent = '드래그 종료됨';
+                logEvent('dragend 이벤트 발생', 'info');
+            });
+            
+            // 드롭 타겟 이벤트
+            dropTarget.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropTarget.classList.add('active');
+                dragStatus.textContent = '드롭 가능 영역 위에 있음';
+            });
+            
+            dropTarget.addEventListener('dragleave', (e) => {
+                dropTarget.classList.remove('active');
+            });
+            
+            dropTarget.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropTarget.classList.remove('active');
+                const data = e.dataTransfer.getData('text/plain');
+                dragStatus.textContent = `드롭 성공! 데이터: ${data}`;
+                dragStatus.className = 'status success';
+                logEvent(`드롭 완료: ${data}`, 'success');
+            });
+        };
+
+        // 대체 드래그 구현
+        const setupAltDrag = () => {
+            const altDrag = document.getElementById('alt-drag');
+            const altStatus = document.getElementById('alt-status');
+            let isDragging = false;
+            let startX, startY, initialX, initialY;
+            
+            altDrag.addEventListener('mousedown', (e) => {
+                isDragging = true;
+                startX = e.clientX;
+                startY = e.clientY;
+                initialX = altDrag.offsetLeft;
+                initialY = altDrag.offsetTop;
+                altDrag.style.position = 'absolute';
+                altDrag.style.zIndex = '1000';
+                altStatus.textContent = '마우스 드래그 시작';
+                altStatus.className = 'status success';
+                logEvent('대체 드래그 시작', 'success');
+            });
+            
+            document.addEventListener('mousemove', (e) => {
+                if (isDragging) {
+                    const dx = e.clientX - startX;
+                    const dy = e.clientY - startY;
+                    altDrag.style.left = (initialX + dx) + 'px';
+                    altDrag.style.top = (initialY + dy) + 'px';
+                    altStatus.textContent = `이동 중: (${dx}, ${dy})`;
+                }
+            });
+            
+            document.addEventListener('mouseup', () => {
+                if (isDragging) {
+                    isDragging = false;
+                    altStatus.textContent = '마우스 드래그 종료';
+                    logEvent('대체 드래그 종료', 'success');
+                }
+            });
+        };
+
+        // 문제 해결 제안
+        const showSuggestions = (systemInfo) => {
+            const suggestions = document.getElementById('suggestions');
+            let html = '<ul>';
+            
+            if (!systemInfo.dragSupport) {
+                html += '<li>❌ HTML5 드래그 API가 지원되지 않습니다. 대체 구현을 사용하세요.</li>';
+            }
+            
+            if (systemInfo.touchSupport) {
+                html += '<li>📱 터치 디바이스입니다. 터치 이벤트 처리가 필요할 수 있습니다.</li>';
+            }
+            
+            if (systemInfo.browserInfo === 'Safari') {
+                html += '<li>🔧 Safari에서는 -webkit-user-drag CSS 속성이 필요할 수 있습니다.</li>';
+            }
+            
+            html += '<li>💡 브라우저 확장 프로그램이 드래그를 방해할 수 있습니다. 시크릿 모드에서 테스트해보세요.</li>';
+            html += '<li>💡 CSS의 user-select: none이 드래그를 방해할 수 있습니다.</li>';
+            html += '<li>💡 React의 이벤트 위임이 문제일 수 있습니다. 네이티브 이벤트를 사용해보세요.</li>';
+            html += '</ul>';
+            
+            suggestions.innerHTML = html;
+        };
+
+        // 모든 테스트 실행
+        const testAll = () => {
+            clearLog();
+            logEvent('=== 전체 테스트 시작 ===', 'info');
+            
+            // 드래그 가능 여부 테스트
+            const testDiv = document.createElement('div');
+            testDiv.draggable = true;
+            testDiv.addEventListener('dragstart', () => {
+                logEvent('✅ dragstart 이벤트 리스너 작동', 'success');
+            });
+            
+            // 프로그래매틱 이벤트 발생
+            try {
+                const event = new DragEvent('dragstart');
+                testDiv.dispatchEvent(event);
+                logEvent('✅ DragEvent 생성 가능', 'success');
+            } catch (e) {
+                logEvent('❌ DragEvent 생성 실패: ' + e.message, 'error');
+            }
+            
+            // DataTransfer 테스트
+            try {
+                const dt = new DataTransfer();
+                dt.setData('text/plain', 'test');
+                logEvent('✅ DataTransfer 객체 생성 가능', 'success');
+            } catch (e) {
+                logEvent('❌ DataTransfer 생성 실패: ' + e.message, 'error');
+            }
+            
+            logEvent('=== 테스트 완료 ===', 'info');
+        };
+
+        // 초기화
+        window.addEventListener('DOMContentLoaded', () => {
+            const systemInfo = checkSystem();
+            setupMouseTest();
+            setupDragTest();
+            setupAltDrag();
+            showSuggestions(systemInfo);
+            logEvent('페이지 로드 완료', 'success');
+        });
+    </script>
+</body>
+</html>
