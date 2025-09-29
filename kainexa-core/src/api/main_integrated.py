@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
 import asyncio
+import os
 
 from src.api.routes.integrated import router as integrated_router
 from src.core.config import settings
