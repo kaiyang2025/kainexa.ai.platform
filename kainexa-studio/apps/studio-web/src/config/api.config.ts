@@ -71,7 +71,7 @@ export function getAPIConfig(): APIConfig {
 // 편의 함수들 - API 엔드포인트 URL을 쉽게 가져올 수 있음
 export const API = {
   // Core API endpoints
-  health: () => `${getAPIConfig().CORE_API_URL}/api/v1/health`,
+  health: () => `${getAPIConfig().CORE_API_URL}/api/v1/health/full`,  // /health/full 사용
   healthFull: () => `${getAPIConfig().CORE_API_URL}/api/v1/health/full`,
   chat: () => `${getAPIConfig().CORE_API_URL}/api/v1/chat`,
   workflowExecute: () => `${getAPIConfig().CORE_API_URL}/api/v1/workflow/execute`,
