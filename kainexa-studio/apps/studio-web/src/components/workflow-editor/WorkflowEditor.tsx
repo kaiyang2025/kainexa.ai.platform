@@ -1,5 +1,5 @@
 // src/components/workflow-editor/WorkflowEditor.tsx
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import ReactFlow, {
   Background,
   BackgroundVariant,
@@ -13,6 +13,8 @@ import ReactFlow, {
   useEdgesState,
   ReactFlowProvider,
   useReactFlow,
+  applyNodeChanges,
+  applyEdgeChanges,
 } from 'reactflow';
 
 import 'reactflow/dist/style.css';
@@ -60,6 +62,9 @@ function generateNodeId(prefix = 'node') {
   nodeCounter += 1;
   return `${prefix}_${nodeCounter}`;
 }
+
+// 로컬 저장 키
+const STORAGE_KEY = 'kainexa.workflow.v1';
 
 // ReactFlow 내부에서만 쓰는 캔버스 컴포넌트
 function FlowCanvas({
@@ -115,10 +120,15 @@ function FlowCanvas({
   }, [screenToFlowPosition, setNodes, setSelectedNode]);
 
   // 노드/엣지 체인지
-  const [onNodesChange, onEdgesChange] = [
-    useCallback((chs: any) => setNodes((nds) => (window as any).applyNodeChanges ? (window as any).applyNodeChanges(chs, nds) : nds), [setNodes]),
-    useCallback((chs: any) => setEdges((eds) => (window as any).applyEdgeChanges ? (window as any).applyEdgeChanges(chs, eds) : eds), [setEdges]),
-  ];
+  const onNodesChange = useCallback(
+    (changes: any) => setNodes((nds) => applyNodeChanges(changes, nds)),
+    [setNodes]
+  );
+  const onEdgesChange = useCallback(
+    (changes: any) => setEdges((eds) => applyEdgeChanges(changes, eds)),
+    [setEdges]
+  );
+
   // 위는 타입 단순화를 위한 방어. reactflow v11에서는 import { applyNodeChanges, applyEdgeChanges } 사용 권장.
 
   return (
@@ -133,12 +143,15 @@ function FlowCanvas({
         onDragOver={onDragOver}
         onDrop={onDrop}
         fitView
+        snapToGrid
+        snapGrid={[16, 16]}
         style={{ background: '#fff', width: '100%', height: '100%' }}
         onNodeClick={(_, n) => setSelectedNode(n)}
       >
         <MiniMap />
         <Controls />
-        <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
+        {/* 격자(선) 배경: Lines 또는 Cross로 취향 선택 */}
+        <Background variant={BackgroundVariant.Lines} gap={16} lineWidth={1} />
       </ReactFlow>
     </div>
   );
@@ -148,6 +161,69 @@ function WorkflowEditorInner() {
   const [nodes, setNodes] = useNodesState([]);
   const [edges, setEdges] = useEdgesState([]);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
+  
+  //자동 저장 디바운스 500ms
+  useEffect(() => {
+  const t = setTimeout(() => {
+    const payload = JSON.stringify({ nodes, edges });
+    localStorage.setItem(STORAGE_KEY, payload);
+  }, 500);
+  return () => clearTimeout(t);
+  }, [nodes, edges]);
+
+  // ── 로컬 저장/불러오기 ──────────────────────────────
+  // 초기 로드 (한 번만)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const { nodes: savedNodes = [], edges: savedEdges = [] } = JSON.parse(raw);
+      setNodes(savedNodes);
+      setEdges(savedEdges);
+    } catch (e) {
+      console.error('Failed to load workflow:', e);
+    }
+  }, [setNodes, setEdges]);
+
+  const saveWorkflow = useCallback(() => {
+    const payload = JSON.stringify({ nodes, edges });
+    localStorage.setItem(STORAGE_KEY, payload);
+  }, [nodes, edges]);
+
+  const loadWorkflow = useCallback(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const { nodes: savedNodes = [], edges: savedEdges = [] } = JSON.parse(raw);
+      setNodes(savedNodes);
+      setEdges(savedEdges);
+    } catch (e) {
+      console.error('Failed to load workflow:', e);
+    }
+  }, [setNodes, setEdges]);
+
+  const clearWorkflow = useCallback(() => {
+    setNodes([]);
+    setEdges([]);
+    localStorage.removeItem(STORAGE_KEY);
+  }, [setNodes, setEdges]);
+
+  // 단축키: Ctrl/Cmd+S 저장, Ctrl/Cmd+O 불러오기
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        saveWorkflow();
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'o') {
+        e.preventDefault();
+        loadWorkflow();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [saveWorkflow, loadWorkflow]);
+  // ───────────────────────────────────────────────────
 
   const updateNodeData = useCallback((nodeId: string, data: any) => {
     setNodes((nds) =>
@@ -160,23 +236,25 @@ function WorkflowEditorInner() {
       {/* 좌측 팔레트 */}
       <div style={{ borderRight: '1px solid #e5e7eb', overflow: 'auto' }}>
         <NodePalette />
-      </div>
+    </div>
 
-      {/* 중앙 캔버스 */}
-      <div style={{ position: 'relative' }}>
-        <FlowCanvas
-          nodes={nodes}
-          setNodes={setNodes}
-          edges={edges}
-          setEdges={setEdges}
-          setSelectedNode={setSelectedNode}
-        />
+    {/* 중앙 캔버스 + 툴바 */}
+    <div style={{ position: 'relative' }}>
+      <FlowCanvas ... />
+      {/* 우상단 툴바 (컨테이너 안으로 이동) */}
+    <div style={{ position:'absolute', top:8, right:8, display:'flex', gap:8, zIndex:10,
+                    background:'rgba(255,255,255,0.8)', padding:6, borderRadius:8,
+                    boxShadow:'0 2px 8px rgba(0,0,0,0.08)' }}>
+        <button onClick={saveWorkflow} style={{ padding:'6px 10px', borderRadius:6, border:'1px solid #e5e7eb' }}>저장</button>
+        <button onClick={loadWorkflow} style={{ padding:'6px 10px', borderRadius:6, border:'1px solid #e5e7eb' }}>불러오기</button>
+        <button onClick={clearWorkflow} style={{ padding:'6px 10px', borderRadius:6, border:'1px solid #e5e7eb' }}>새로 만들기</button>
       </div>
+    </div>
 
       {/* 우측 속성 패널 */}
       <div style={{ borderLeft: '1px solid #e5e7eb', overflow: 'auto' }}>
         <PropertiesPanel selectedNode={selectedNode} updateNodeData={updateNodeData} />
-      </div>
+       </div>
     </div>
   );
 }
