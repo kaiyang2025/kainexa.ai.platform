@@ -1,14 +1,5 @@
-// ========================================
-// Kainexa Studio - React Flow 비주얼 에디터
-// apps/studio-web/src/components/workflow-editor/
-// ========================================
-
-// ============================
-// 1. 메인 워크플로우 에디터 컴포넌트
 // apps/studio-web/src/components/workflow-editor/WorkflowEditor.tsx
-// ============================
-
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState, DragEvent } from 'react';
 import ReactFlow, {
   Node,
   Edge,
@@ -22,9 +13,8 @@ import ReactFlow, {
   ReactFlowProvider,
   ReactFlowInstance,
   BackgroundVariant,
-  NodeChange,
-  EdgeChange,
   Panel,
+  useReactFlow,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
@@ -69,13 +59,15 @@ const initialNodes: Node[] = [
 
 const initialEdges: Edge[] = [];
 
-export default function WorkflowEditor() {
-  const reactFlowWrapper = useRef<HTMLDivElement>(null);
+// 메인 에디터 컴포넌트 (ReactFlowProvider 내부)
+function WorkflowEditorContent() {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
-  const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
+  
+  const { screenToFlowPosition } = useReactFlow();
+  const reactFlowWrapper = useRef<HTMLDivElement>(null);
   
   const { 
     currentWorkflow, 
@@ -95,40 +87,47 @@ export default function WorkflowEditor() {
     [setEdges]
   );
 
-  // 드래그 앤 드롭
-  const onDragOver = useCallback((event: React.DragEvent) => {
+  // 드래그 오버 이벤트
+  const onDragOver = useCallback((event: DragEvent) => {
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
   }, []);
 
+  // 드롭 이벤트
   const onDrop = useCallback(
-    (event: React.DragEvent) => {
+    (event: DragEvent) => {
       event.preventDefault();
 
-      if (!reactFlowWrapper.current || !reactFlowInstance) return;
+      // 드래그된 노드 타입과 라벨 가져오기
+      const nodeType = event.dataTransfer.getData('application/reactflow');
+      const nodeLabel = event.dataTransfer.getData('nodeLabel');
+      
+      // 타입이 없으면 무시
+      if (!nodeType) {
+        return;
+      }
 
-      const type = event.dataTransfer.getData('nodeType');
-      const label = event.dataTransfer.getData('nodeLabel');
-
-      const reactFlowBounds = reactFlowWrapper.current.getBoundingClientRect();
-      const position = reactFlowInstance.project({
-        x: event.clientX - reactFlowBounds.left,
-        y: event.clientY - reactFlowBounds.top,
+      // 드롭 위치를 Flow 좌표계로 변환
+      const position = screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
       });
 
+      // 새 노드 생성
       const newNode: Node = {
         id: generateNodeId(),
-        type,
+        type: nodeType,
         position,
         data: { 
-          label,
-          config: getDefaultConfig(type)
+          label: nodeLabel || nodeType,
+          config: getDefaultConfig(nodeType)
         },
+        dragHandle: '.custom-drag-handle', // 선택적: 특정 핸들로만 드래그 가능
       };
 
       setNodes((nds) => nds.concat(newNode));
     },
-    [reactFlowInstance, setNodes]
+    [screenToFlowPosition, setNodes]
   );
 
   // 노드 선택
@@ -171,8 +170,10 @@ export default function WorkflowEditor() {
         testInput: '안녕하세요'
       });
       console.log('Execution result:', result);
+      alert('워크플로우 실행이 완료되었습니다!');
     } catch (error) {
       console.error('Execution error:', error);
+      alert('워크플로우 실행 중 오류가 발생했습니다.');
     } finally {
       setIsExecuting(false);
     }
@@ -185,47 +186,61 @@ export default function WorkflowEditor() {
 
       {/* 중앙 - 에디터 */}
       <div className="flex-1" ref={reactFlowWrapper}>
-        <ReactFlowProvider>
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onConnect={onConnect}
-            onInit={setReactFlowInstance}
-            onDrop={onDrop}
-            onDragOver={onDragOver}
-            onNodeClick={onNodeClick}
-            nodeTypes={nodeTypes}
-            fitView
-          >
-            <Background 
-              variant={BackgroundVariant.Dots} 
-              gap={12} 
-              size={1} 
-              color="#e5e7eb"
-            />
-            <Controls />
-            <MiniMap 
-              style={{
-                height: 120,
-                backgroundColor: '#f3f4f6'
-              }}
-              maskColor="rgb(243, 244, 246, 0.7)"
-            />
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          onDrop={onDrop}
+          onDragOver={onDragOver}
+          onNodeClick={onNodeClick}
+          nodeTypes={nodeTypes}
+          fitView
+          fitViewOptions={{ padding: 0.2 }}
+          defaultEdgeOptions={{
+            animated: true,
+            style: { stroke: '#6366f1', strokeWidth: 2 }
+          }}
+        >
+          <Background 
+            variant={BackgroundVariant.Dots} 
+            gap={12} 
+            size={1} 
+            color="#e5e7eb"
+          />
+          <Controls />
+          <MiniMap 
+            style={{
+              height: 120,
+              backgroundColor: '#f3f4f6'
+            }}
+            maskColor="rgb(243, 244, 246, 0.7)"
+            nodeColor={(node) => {
+              switch (node.type) {
+                case 'intent': return '#9333ea';
+                case 'llm': return '#3b82f6';
+                case 'api': return '#10b981';
+                case 'condition': return '#f97316';
+                case 'loop': return '#ec4899';
+                default: return '#6b7280';
+              }
+            }}
+          />
 
-            {/* 상단 툴바 */}
-            <Panel position="top-center" className="flex gap-2 bg-white p-2 rounded-lg shadow-lg">
+          {/* 상단 툴바 */}
+          <Panel position="top-center">
+            <div className="flex gap-2 bg-white p-2 rounded-lg shadow-lg">
               <button
                 onClick={handleSave}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors flex items-center gap-2"
               >
                 💾 저장
               </button>
               <button
                 onClick={handleExecute}
                 disabled={isExecuting}
-                className={`px-4 py-2 rounded transition-colors ${
+                className={`px-4 py-2 rounded transition-colors flex items-center gap-2 ${
                   isExecuting 
                     ? 'bg-gray-300 cursor-not-allowed' 
                     : 'bg-green-600 text-white hover:bg-green-700'
@@ -233,9 +248,9 @@ export default function WorkflowEditor() {
               >
                 {isExecuting ? '⏳ 실행 중...' : '▶️ 실행'}
               </button>
-            </Panel>
-          </ReactFlow>
-        </ReactFlowProvider>
+            </div>
+          </Panel>
+        </ReactFlow>
       </div>
 
       {/* 오른쪽 패널 - 속성 편집기 */}
@@ -261,7 +276,7 @@ function getDefaultConfig(type: string) {
       };
     case 'llm':
       return {
-        model: 'gpt-3.5-turbo',
+        model: 'solar',
         temperature: 0.7,
         maxTokens: 500,
         systemPrompt: '',
@@ -287,4 +302,13 @@ function getDefaultConfig(type: string) {
     default:
       return {};
   }
+}
+
+// 메인 컴포넌트 - ReactFlowProvider로 감싸기
+export default function WorkflowEditor() {
+  return (
+    <ReactFlowProvider>
+      <WorkflowEditorContent />
+    </ReactFlowProvider>
+  );
 }
