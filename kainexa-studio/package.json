@@ -3,15 +3,26 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "pnpm -r dev",
+    "dev": "pnpm -r --parallel dev",
     "build": "pnpm -r build",
     "test": "pnpm -r test",
+    "test:unit": "jest --testPathPattern=unit",
+    "test:integration": "jest --testPathPattern=integration",
+    "test:e2e": "playwright test",
+    "test:coverage": "jest --coverage",
+    "lint": "eslint . --ext .ts,.tsx",
+    "type-check": "tsc --noEmit",
     "studio:dev": "pnpm --filter @kainexa/studio-web dev",
-    "api:dev": "pnpm --filter @kainexa/studio-api dev"
+    "api:dev": "pnpm --filter @kainexa/studio-api dev",
+    "engine:test": "pnpm --filter @kainexa/workflow-engine test"
   },
   "devDependencies": {
-    "typescript": "^5.3.2",
-    "turbo": "^1.11.2"
-  },
-  "packageManager": "pnpm@8.10.0"
+    "@types/jest": "^29.5.11",
+    "@types/node": "^20.10.4",
+    "@playwright/test": "^1.40.1",
+    "eslint": "^8.55.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.1",
+    "typescript": "^5.3.3"
+  }
 }
