@@ -2,17 +2,17 @@
 const nextConfig = {
   reactStrictMode: true,
   
-  // 외부 접속 허용
-  images: {
-    domains: ['localhost', '192.168.1.215'],
+  // 환경 변수 기본값 설정
+  env: {
+    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://192.168.1.215:4000'
   },
   
-  // API 프록시 설정
+  // API 프록시 설정 (선택적)
   async rewrites() {
     return [
       {
         source: '/api/:path*',
-        destination: 'http://192.168.1.215:4000/api/:path*'
+        destination: 'http://192.168.1.215:4000/:path*'
       }
     ];
   },
