@@ -101,10 +101,7 @@ function WorkflowEditorContent() {
       event.dataTransfer.getData('application/reactflow') ||
       event.dataTransfer.getData('text/plain');
     if (!raw) return;
-
-    let parsed: { type: string; label?: string } | null = null;
-    try { parsed = JSON.parse(raw); } catch { parsed = { type: raw, label: raw }; }
-
+    let parsed; try { parsed = JSON.parse(raw); } catch { parsed = { type: raw, label: raw }; }
     const nodeType = parsed.type;
     const nodeLabel = parsed.label || nodeType;
     if (!nodeType) return;

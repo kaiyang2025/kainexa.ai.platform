@@ -15,5 +15,5 @@ export const ConditionNode = memo(({ data, isConnectable }: NodeProps) => {
   );
 });
 
-IntentNode.displayName = 'ConditionNode';
+ConditionNode.displayName = 'ConditionNode';
 export default ConditionNode;

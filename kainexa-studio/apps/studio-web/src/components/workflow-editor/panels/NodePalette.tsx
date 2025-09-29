@@ -17,12 +17,11 @@ const nodes: NodeItem[] = [
 ];
 
 export default function NodePalette() {
-  const onDragStart = (e: React.DragEvent, node: NodeItem) => {
-    const payload = JSON.stringify({ type: node.type, label: node.label });
-    e.dataTransfer.setData('application/reactflow', payload);
-    e.dataTransfer.setData('text/plain', payload);   // 호환용 백업
-    e.dataTransfer.effectAllowed = 'move';
-  };
+  const payload = JSON.stringify({ type: node.type, label: node.label });
+  e.dataTransfer.setData('application/reactflow', payload);
+  e.dataTransfer.setData('text/plain', payload);
+  e.dataTransfer.effectAllowed = 'move';
+};
 
   return (
     <div

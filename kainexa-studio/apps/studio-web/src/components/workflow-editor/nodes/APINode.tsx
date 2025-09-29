@@ -14,5 +14,5 @@ export const APINode = memo(({ data, isConnectable }: NodeProps) => {
   );
 });
 
-IntentNode.displayName = 'APINode';
+APINode.displayName = 'APINode';
 export default APINode;

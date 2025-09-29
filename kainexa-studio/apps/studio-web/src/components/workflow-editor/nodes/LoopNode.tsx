@@ -14,5 +14,5 @@ export const LoopNode = memo(({ data, isConnectable }: NodeProps) => {
   );
 });
 
-IntentNode.displayName = 'LoopNode';
+LoopNode.displayName = 'LoopNode';
 export default LoopNode;

@@ -13,5 +13,5 @@ export const LLMNode = memo(({ data, isConnectable }: NodeProps) => {
   );
 });
 
-IntentNode.displayName = 'LLMNode';
+LLMNode.displayName = 'LLMNode';
 export default LLMNode;
