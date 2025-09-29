@@ -18,16 +18,16 @@ const nodes: NodeItem[] = [
 
 export default function NodePalette() {
 
+  // ✅ 교체본
   const onDragStart = (e: React.DragEvent, node: NodeItem) => {
-  // 1) 드래그 페이로드를 JSON으로 포장
-  const payload = JSON.stringify({ type: node.type, label: node.label });
+    // JSON으로 포장 (타입 + 라벨 동시 전달)
+    const payload = JSON.stringify({ type: node.type, label: node.label });
 
-  // 2) 표준 키 + 호환 키 모두 설정
-  e.dataTransfer.setData('application/reactflow', payload);
-  e.dataTransfer.setData('text/plain', payload);
+    // 표준 키 + 호환 키 모두 설정
+    e.dataTransfer.setData('application/reactflow', payload);
+    e.dataTransfer.setData('text/plain', payload); // ← 일부 환경에서 필수
 
-  // 3) 드래그 이펙트
-  e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.effectAllowed = 'move';
   };
 
   return (

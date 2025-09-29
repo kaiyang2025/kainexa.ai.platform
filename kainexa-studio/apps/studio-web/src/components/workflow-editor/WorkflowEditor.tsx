@@ -93,42 +93,59 @@ function WorkflowEditorContent() {
     event.dataTransfer.dropEffect = 'move';
   }, []);
 
-  // 드롭 이벤트
+  // 교체본: onDrop 전체
   const onDrop = useCallback(
-    (event: DragEvent) => {
+    (event: React.DragEvent) => {
       event.preventDefault();
 
-      // 드래그된 노드 타입과 라벨 가져오기
-      const nodeType = event.dataTransfer.getData('application/reactflow');
-      const nodeLabel = event.dataTransfer.getData('nodeLabel');
-      
-      // 타입이 없으면 무시
-      if (!nodeType) {
-        return;
+      // 1) dataTransfer에서 우선 JSON(payload) 시도 → 없으면 text/plain 폴백
+      const raw =
+        event.dataTransfer.getData('application/reactflow') ||
+        event.dataTransfer.getData('text/plain');
+
+      if (!raw) return;
+
+      // 2) JSON 파싱 시도 (팔레트가 JSON으로 넣은 경우)
+      let parsed: { type: string; label?: string } | null = null;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        // 문자열만 온 구버전 폴백
+        parsed = { type: raw };
       }
 
-      // 드롭 위치를 Flow 좌표계로 변환
+      // 3) 타입/라벨 확정 (구버전 'nodeLabel' 키도 함께 폴백)
+      const nodeType = parsed?.type;
+      const nodeLabel =
+        parsed?.label ||
+        event.dataTransfer.getData('nodeLabel') || // 과거 방식 호환
+        nodeType;
+
+      if (!nodeType) return;
+
+      // 4) 드롭 위치를 Flow 좌표로 변환
       const position = screenToFlowPosition({
         x: event.clientX,
         y: event.clientY,
       });
 
-      // 새 노드 생성
+      // 5) 새 노드 생성
       const newNode: Node = {
         id: generateNodeId(),
         type: nodeType,
         position,
-        data: { 
-          label: nodeLabel || nodeType,
-          config: getDefaultConfig(nodeType)
+        data: {
+          label: nodeLabel,
+          config: getDefaultConfig(nodeType),
         },
-        dragHandle: '.custom-drag-handle', // 선택적: 특정 핸들로만 드래그 가능
+        dragHandle: '.custom-drag-handle', // (선택)
       };
 
       setNodes((nds) => nds.concat(newNode));
     },
     [screenToFlowPosition, setNodes]
   );
+
 
   // 노드 선택
   const onNodeClick = useCallback((event: React.MouseEvent, node: Node) => {
