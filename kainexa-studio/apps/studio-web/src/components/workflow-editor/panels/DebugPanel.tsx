@@ -1,3 +1,5 @@
+
+///src/components/workflow-editor/panels/DebugPanel.tsx
 import React from 'react';
 
 export default function DebugPanel() {
