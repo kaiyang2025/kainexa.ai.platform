@@ -143,9 +143,11 @@ async def execute_workflow(request: dict):
                     }
                 else:
                     try:
-                        # 시스템 프롬프트와 사용자 메시지 준비
-                        system_prompt = node_config.get('systemPrompt', 
-                            "당신은 한국어를 유창하게 구사하는 친절한 AI 어시스턴트입니다.")
+                        # 명확한 한국어 지시 프롬프트
+                        system_prompt = """당신은 한국 제조업 전문 AI 어시스턴트입니다.
+                    반드시 자연스러운 한국어로만 응답하세요.
+                    영어, 한자, 특수문자를 사용하지 마세요.
+                    전문용어는 한국어로 설명하되, 약어(OEE/IoT/AI)는 괄호로 병기 가능합니다."""
                         
                         # 이전 노드의 출력을 입력으로 사용
                         user_message = "안녕하세요"
@@ -163,8 +165,11 @@ async def execute_workflow(request: dict):
                         response = app.state.llm.generate(
                             prompt=prompt,
                             max_new_tokens=100,
-                            temperature=node_config.get('temperature', 0.7),
-                            do_sample=True
+                            temperature=0.7,  # 적절한 창의성
+                            top_p=0.9,
+                            top_k=50,
+                            do_sample=True,  # 샘플링 활성화
+                            ko_only=True,  # 한국어 전용 모드
                         )
                         
                         result["output"] = {

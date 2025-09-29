@@ -25,7 +25,7 @@ class SolarLLM:
 
     def __init__(
         self,
-        model_path: str = "models/solar-10.7b",
+        model_path: str = "upstage/SOLAR-10.7B-v1.0",
         device_map: Optional[str] = "auto",   # "auto" 권장(2장 NVLink 분산)
         load_in_8bit: bool = True,            # 환경변수 KXN_QUANT가 우선
         device: Optional[str] = None,
@@ -180,6 +180,22 @@ class SolarLLM:
             return self._bad_words_cache
 
         bad: List[List[int]] = []
+        
+        # 특정 문제 토큰들 직접 차단
+        problem_tokens = [
+            "△", "▽", "□", "■", "○", "●",  # 도형
+            "خ", "ُ", "و", "ش", "َ", "آ",  # 아랍 문자
+            "安", "您", "好",  # 중국어
+            "こ", "ん", "に", "ち", "は",  # 일본어
+        ]        
+        for token in problem_tokens:
+            try:
+                ids = self.tokenizer.encode(token, add_special_tokens=False)
+                for id in ids:
+                    bad.append([id])
+            except:
+                pass
+        
         pat_list = [
             r"[A-Za-z]",                            # 영문
             r"[\u3400-\u4DBF\u4E00-\u9FFF]",        # 한자(CJK Unified + Ext-A)
@@ -204,41 +220,39 @@ class SolarLLM:
     # 후처리(최종 안전장치)
     # ----------------------------
     def _force_korean(self, text: str) -> str:
-        """한국어만 남기고 정리 (OEE/IoT/AI 화이트리스트 보존)"""
+        """한국어만 남기고 정리 - 더 엄격한 처리"""
         if not text:
             return text
-        # 약어 화이트리스트 마스킹
-        WL = {"OEE": "__WL_OEE__", "IoT": "__WL_IOT__", "AI": "__WL_AI__"}
+        
+        # 1. 약어 화이트리스트 보호
+        WL = {
+            "OEE": "__WL_OEE__", "IoT": "__WL_IOT__", "AI": "__WL_AI__",
+            "API": "__WL_API__", "LLM": "__WL_LLM__", "GPU": "__WL_GPU__"
+        }
         for k, v in WL.items():
             text = text.replace(k, v)
-
-        # 흔한 영문 용어 → 한글 치환
-        repl = {
-            r"\bOverall\s*Equipment\s*Effectiveness\b": "종합설비효율",
-            r"\bAvailability\b": "가용성",
-            r"\bPerformance\b": "성능",
-            r"\bQuality\b": "품질",
-            r"\bPredictive\s*Maintenance\b": "예지보전",
-            r"\bMachine\s*Learning\b": "기계학습",
-            r"\bSmart\s*Factory\b": "스마트팩토리",
-            r"\bfactory\b": "공장",
-            r"\b(improve|improvement)\b": "개선",
-            r"\benhance(?:ment)?\b": "향상",
-        }
-        for pat, rep in repl.items():
-            text = re.sub(pat, rep, text, flags=re.IGNORECASE)
-
-        # 남은 영문/키릴/가나/한자 제거(숫자·기호 보존)
-        text = re.sub(r"[A-Za-z\u0400-\u04FF\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]+", "", text)
-
-        # 약어 복원
+        
+        # 2. 깨진 한글 패턴 수정
+        text = text.replace("안녫", "안녕")
+        text = text.replace("업 엔", "업무")
+        text = text.replace("하요", "하세요")
+        
+        # 3. 연속된 특수문자 제거
+        text = re.sub(r'[△▽□■○●]+', '', text)
+        text = re.sub(r'[\u0600-\u06FF]+', '', text)  # 아랍 문자
+        text = re.sub(r'[\u4e00-\u9fff]+', '', text)  # 중국어
+        text = re.sub(r'[\u3040-\u30ff]+', '', text)  # 일본어
+        
+        # 4. 괄호 안의 이상한 문자 제거
+        text = re.sub(r'\([^가-힣a-zA-Z0-9\s]*\)', '', text)
+        
+        # 5. 약어 복원
         for k, v in WL.items():
             text = text.replace(v, k)
-
-        # 공백/문장 부호 정리
-        text = re.sub(r"\s+", " ", text).strip()
-        text = re.sub(r"\s([,.)\]%])", r"\1", text)
-        text = re.sub(r"([(\[])\s", r"\1", text)
+        
+        # 6. 공백 정리
+        text = re.sub(r'\s+', ' ', text).strip()
+        
         return text
 
     # ----------------------------
@@ -258,10 +272,10 @@ class SolarLLM:
         prompt: str,
         max_new_tokens: int = None,
         stream: bool = False,
-        temperature: float = 0.0,  # do_sample=False일 땐 무시됨
+        temperature: float = 0.7,  # do_sample=False일 땐 무시됨
         top_p: float = 0.9,
         top_k: int = 50,
-        do_sample: bool = False,
+        do_sample: bool = True,
         ko_only: bool = True,
         **kwargs
     ) -> str:
