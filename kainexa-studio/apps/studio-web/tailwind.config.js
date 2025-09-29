@@ -1,10 +1,20 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   content: [
-    './src/**/*.{js,ts,jsx,tsx,mdx}',
+    './src/pages/**/*.{js,ts,jsx,tsx,mdx}',
+    './src/components/**/*.{js,ts,jsx,tsx,mdx}',
+    './src/app/**/*.{js,ts,jsx,tsx,mdx}',
   ],
   theme: {
-    extend: {},
+    extend: {
+      colors: {
+        primary: '#667eea',
+        secondary: '#764ba2',
+      },
+      animation: {
+        'fade-in': 'fadeIn 0.3s ease-in-out',
+      },
+    },
   },
   plugins: [],
 }
