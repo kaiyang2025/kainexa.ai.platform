@@ -17,26 +17,18 @@ const nodes: NodeItem[] = [
 ];
 
 export default function NodePalette() {
-
-  // ✅ 교체본
   const onDragStart = (e: React.DragEvent, node: NodeItem) => {
-    // JSON으로 포장 (타입 + 라벨 동시 전달)
     const payload = JSON.stringify({ type: node.type, label: node.label });
-
-    // 표준 키 + 호환 키 모두 설정
     e.dataTransfer.setData('application/reactflow', payload);
-    e.dataTransfer.setData('text/plain', payload); // ← 일부 환경에서 필수
-
+    e.dataTransfer.setData('text/plain', payload);   // 호환용 백업
     e.dataTransfer.effectAllowed = 'move';
   };
 
   return (
     <div
       className="node-palette"
-      style={{
-        width: 250, backgroundColor: '#f9fafb', borderRight: '1px solid #e5e7eb',
-        padding: 16, height: '100%', overflowY: 'auto', userSelect: 'none',
-      }}
+      style={{ width: 250, backgroundColor: '#f9fafb', borderRight: '1px solid #e5e7eb',
+               padding: 16, height: '100%', overflowY: 'auto', userSelect: 'none' }}
     >
       <h2 style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 16, color: '#111827' }}>
         노드 팔레트
