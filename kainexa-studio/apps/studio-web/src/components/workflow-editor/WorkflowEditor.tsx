@@ -21,11 +21,11 @@ import NodePalette from './panels/NodePalette';
 import PropertiesPanel from './panels/PropertiesPanel';
 
 // 커스텀 노드들
-import IntentNode from './IntentNode';
-import LLMNode from './LLMNode';
-import APINode from './APINode';
-import ConditionNode from './ConditionNode';
-import LoopNode from './LoopNode';
+import IntentNode from './nodes/IntentNode';
+import LLMNode from './nodes/LLMNode';
+import APINode from './nodes/APINode';
+import ConditionNode from './nodes/ConditionNode';
+import LoopNode from './nodes/LoopNode';
 
 // 노드 타입 매핑
 const nodeTypes = {
