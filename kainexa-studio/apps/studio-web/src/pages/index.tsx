@@ -5,9 +5,16 @@ import styles from '@/styles/Home.module.css'
 export default function Home() {
   const [isConnected, setIsConnected] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [currentUrl, setCurrentUrl] = useState('')  // 클라이언트 사이드에서만 설정
 
   useEffect(() => {
+    // 클라이언트 사이드에서만 실행
     checkConnection()
+    
+    // window 객체는 클라이언트에서만 사용
+    if (typeof window !== 'undefined') {
+      setCurrentUrl(window.location.origin)
+    }
   }, [])
 
   const checkConnection = async () => {
@@ -45,7 +52,10 @@ export default function Home() {
         <div className={styles.card} onClick={checkConnection}>
           <h2 className={styles.cardTitle}>🔌 시스템 상태</h2>
           <p className={styles.cardDescription}>
-            API 서버: {loading ? '확인 중...' : (
+            API 서버:{' '}
+            {loading ? (
+              <span>확인 중...</span>
+            ) : (
               <span className={isConnected ? 'text-green-600' : 'text-red-600'}>
                 {isConnected ? '✅ 연결됨' : '❌ 연결 안됨'}
               </span>
@@ -69,7 +79,10 @@ export default function Home() {
       </div>
 
       <div className="mt-8 text-white text-center">
-        <p>접속 주소: {typeof window !== 'undefined' && window.location.origin}</p>
+        {/* 클라이언트 사이드에서만 렌더링 */}
+        {currentUrl && (
+          <p>현재 접속 주소: {currentUrl}</p>
+        )}
         <p className="text-sm opacity-75 mt-2">
           외부 접속: http://192.168.1.215:3000
         </p>
