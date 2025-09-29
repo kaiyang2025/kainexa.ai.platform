@@ -4,6 +4,8 @@
 """
 
 from fastapi import FastAPI
+from datetime import datetime, timezone   # ← 추가
+from uuid import uuid4                    # ← (권장) 실행 ID용
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
@@ -81,11 +83,12 @@ async def execute_workflow(request: dict):
     
     print(f"Executing workflow with {len(nodes)} nodes")
     
+    now = datetime.now(timezone.utc)
     return {
-        "execution_id": f"exec_{datetime.now().timestamp()}",
+        "execution_id": f"exec_{uuid4().hex}",           # 중복 가능성↓
         "status": "completed",
         "message": f"워크플로우 실행 완료: {len(nodes)}개 노드 처리",
-        "timestamp": datetime.now().isoformat()
+        "timestamp": now.isoformat()                      # TZ 포함 ISO8601
     }
 
 # ✅ /health 엔드포인트 추가
