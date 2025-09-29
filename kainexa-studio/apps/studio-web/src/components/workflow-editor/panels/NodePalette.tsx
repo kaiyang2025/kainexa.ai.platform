@@ -17,10 +17,17 @@ const nodes: NodeItem[] = [
 ];
 
 export default function NodePalette() {
+
   const onDragStart = (e: React.DragEvent, node: NodeItem) => {
-    e.dataTransfer.setData('application/reactflow', node.type);
-    e.dataTransfer.setData('nodeLabel', node.label);
-    e.dataTransfer.effectAllowed = 'move';
+  // 1) 드래그 페이로드를 JSON으로 포장
+  const payload = JSON.stringify({ type: node.type, label: node.label });
+
+  // 2) 표준 키 + 호환 키 모두 설정
+  e.dataTransfer.setData('application/reactflow', payload);
+  e.dataTransfer.setData('text/plain', payload);
+
+  // 3) 드래그 이펙트
+  e.dataTransfer.effectAllowed = 'move';
   };
 
   return (
