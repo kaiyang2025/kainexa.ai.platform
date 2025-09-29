@@ -26,7 +26,23 @@ async def lifespan(app: FastAPI):
     try:
         if not hasattr(app.state, "llm") or app.state.llm is None:
             logger.info("Loading Solar LLM model...")
-            llm = SolarLLM()
+            
+            # 모델 경로를 명확히 지정
+            model_path = os.getenv("SOLAR_MODEL_PATH", "beomi/OPEN-SOLAR-KO-10.7B")
+            
+            # 로컬 경로인지 HuggingFace 모델인지 확인
+            if os.path.exists(model_path):
+                # 로컬 모델
+                logger.info(f"Using local model: {model_path}")
+            else:
+                # HuggingFace Hub 모델
+                logger.info(f"Using HuggingFace model: {model_path}")
+            
+            llm = SolarLLM(
+                model_path=model_path,  # 문자열로 전달
+                load_in_8bit=True,  # 8비트 양자화
+                device_map="auto"  # 자동 분산
+            )
             llm.load()
             app.state.llm = llm
             logger.info("✅ SolarLLM loaded and cached successfully")

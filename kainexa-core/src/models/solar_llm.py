@@ -25,12 +25,12 @@ class SolarLLM:
 
     def __init__(
         self,
-        model_path: str = "upstage/SOLAR-10.7B-v1.0",
+        model_path: str = "beomi/OPEN-SOLAR-KO-10.7B",
         device_map: Optional[str] = "auto",   # "auto" 권장(2장 NVLink 분산)
         load_in_8bit: bool = True,            # 환경변수 KXN_QUANT가 우선
         device: Optional[str] = None,
     ):
-        self.model_path = Path(model_path)
+        self.model_path = str(Path(model_path))
         self.device_map = device_map
         self.load_in_8bit = load_in_8bit
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -91,7 +91,7 @@ class SolarLLM:
         dtype = torch.float16 if torch.cuda.is_available() else torch.float32
 
         load_kwargs = {
-            "dtype": dtype,  # torch_dtype 경고 회피
+            "torch_dtype": dtype,  # torch_dtype 경고 회피
             "low_cpu_mem_usage": True,
             "trust_remote_code": True,
         }
@@ -110,7 +110,7 @@ class SolarLLM:
             f"→ load attempt: quant={quant or 'none'}, device_map={device_map}, dtype={dtype}"
         )
 
-        self.model = AutoModelForCausalLM.from_pretrained(self.model_path, **load_kwargs)
+        self.model = AutoModelForCausalLM.from_pretrained(str(self.model_path), **load_kwargs)
         if not device_map:
             # 단일 디바이스 (cuda or cpu)
             self.model.to(self.device)
@@ -127,7 +127,7 @@ class SolarLLM:
 
         # 토크나이저
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self.model_path,
+            str(self.model_path),
             trust_remote_code=True,
         )
         if self.tokenizer.pad_token is None:
