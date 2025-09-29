@@ -94,3 +94,13 @@ a {
   margin: 0 auto;
   padding: 0 1rem;
 }
+
+* {
+  -webkit-user-drag: auto !important;
+  user-select: auto !important;
+}
+
+[draggable="true"] {
+  -webkit-user-drag: element !important;
+  cursor: grab !important;
+}
