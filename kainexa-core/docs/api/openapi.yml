@@ -1,0 +1,736 @@
+openapi: 3.1.0
+
+info:
+  title: Kainexa Core Workflow API
+  version: 1.0.0
+  description: |
+    Kainexa Core API for workflow management and execution.
+    Supports DSL upload, compilation, simulation, publishing, and execution.
+  contact:
+    name: Kainexa Support
+    email: support@kainexa.ai
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://api.kainexa.local/api/v1
+    description: Production
+  - url: https://stage-api.kainexa.local/api/v1
+    description: Staging
+  - url: http://localhost:8000/api/v1
+    description: Development
+
+security:
+  - bearerAuth: []
+
+paths:
+  # ========== Workflow Management ==========
+  /workflows:
+    post:
+      summary: Upload workflow DSL
+      operationId: uploadWorkflow
+      tags: [Workflow Management]
+      requestBody:
+        required: true
+        content:
+          application/yaml:
+            schema:
+              type: string
+              example: |
+                version: "1.0"
+                workflow:
+                  namespace: cs
+                  name: refund-flow
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkflowDSL'
+      responses:
+        '201':
+          description: Workflow uploaded successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowUploadResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    
+    get:
+      summary: List workflows
+      operationId: listWorkflows
+      tags: [Workflow Management]
+      parameters:
+        - name: namespace
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: List of workflows
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowList'
+
+  /workflows/{workflowId}:
+    parameters:
+      - name: workflowId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    
+    get:
+      summary: Get workflow details
+      operationId: getWorkflow
+      tags: [Workflow Management]
+      responses:
+        '200':
+          description: Workflow details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    
+    delete:
+      summary: Delete workflow
+      operationId: deleteWorkflow
+      tags: [Workflow Management]
+      responses:
+        '204':
+          description: Workflow deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /workflows/{workflowId}/versions:
+    parameters:
+      - name: workflowId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    
+    get:
+      summary: List workflow versions
+      operationId: listWorkflowVersions
+      tags: [Workflow Management]
+      responses:
+        '200':
+          description: List of versions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionList'
+
+  # ========== Workflow Compilation ==========
+  /workflows/compile:
+    post:
+      summary: Compile workflow DSL
+      operationId: compileWorkflow
+      tags: [Workflow Compilation]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - workflow_id
+                - version
+              properties:
+                workflow_id:
+                  type: string
+                  format: uuid
+                version:
+                  type: string
+                  pattern: '^\d+\.\d+\.\d+$'
+      responses:
+        '200':
+          description: Compilation successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompileResult'
+        '400':
+          description: Compilation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompileError'
+
+  # ========== Workflow Simulation ==========
+  /workflows/simulate:
+    post:
+      summary: Simulate workflow execution
+      operationId: simulateWorkflow
+      tags: [Workflow Simulation]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - workflow_id
+                - version
+                - input
+              properties:
+                workflow_id:
+                  type: string
+                  format: uuid
+                version:
+                  type: string
+                input:
+                  type: object
+                  additionalProperties: true
+                context:
+                  type: object
+                  properties:
+                    channel:
+                      type: string
+                    language:
+                      type: string
+                    tenant_id:
+                      type: string
+      responses:
+        '200':
+          description: Simulation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SimulationResult'
+
+  # ========== Workflow Publishing ==========
+  /workflows/publish:
+    post:
+      summary: Publish workflow to environment
+      operationId: publishWorkflow
+      tags: [Workflow Publishing]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - workflow_id
+                - version
+                - environment
+              properties:
+                workflow_id:
+                  type: string
+                  format: uuid
+                version:
+                  type: string
+                environment:
+                  type: string
+                  enum: [dev, stage, prod]
+      responses:
+        '200':
+          description: Published successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublishResult'
+
+  /workflows/activate:
+    post:
+      summary: Activate specific workflow version
+      operationId: activateWorkflow
+      tags: [Workflow Publishing]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - workflow_id
+                - version
+                - environment
+              properties:
+                workflow_id:
+                  type: string
+                  format: uuid
+                version:
+                  type: string
+                environment:
+                  type: string
+                  enum: [dev, stage, prod]
+      responses:
+        '200':
+          description: Activated successfully
+
+  # ========== Workflow Execution ==========
+  /workflow/{namespace}/{name}/execute:
+    parameters:
+      - name: namespace
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+    
+    post:
+      summary: Execute workflow
+      operationId: executeWorkflow
+      tags: [Workflow Execution]
+      parameters:
+        - name: environment
+          in: query
+          schema:
+            type: string
+            enum: [dev, stage, prod]
+            default: prod
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExecutionRequest'
+      responses:
+        '200':
+          description: Execution result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /executions/{executionId}:
+    parameters:
+      - name: executionId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    
+    get:
+      summary: Get execution details
+      operationId: getExecution
+      tags: [Workflow Execution]
+      responses:
+        '200':
+          description: Execution details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionDetail'
+
+  /executions/{executionId}/trace:
+    parameters:
+      - name: executionId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    
+    get:
+      summary: Get execution trace
+      operationId: getExecutionTrace
+      tags: [Workflow Execution]
+      responses:
+        '200':
+          description: Execution trace
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionTrace'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    WorkflowDSL:
+      type: object
+      required:
+        - version
+        - workflow
+        - nodes
+        - edges
+      properties:
+        version:
+          type: string
+        workflow:
+          type: object
+          properties:
+            namespace:
+              type: string
+            name:
+              type: string
+            version:
+              type: string
+            metadata:
+              type: object
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Node'
+        edges:
+          type: array
+          items:
+            $ref: '#/components/schemas/Edge'
+        policies:
+          $ref: '#/components/schemas/Policies'
+
+    Node:
+      type: object
+      required:
+        - id
+        - type
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [intent, llm, api, condition, loop]
+        position:
+          type: object
+          properties:
+            x:
+              type: number
+            y:
+              type: number
+        config:
+          type: object
+          additionalProperties: true
+
+    Edge:
+      type: object
+      required:
+        - source
+        - target
+      properties:
+        id:
+          type: string
+        source:
+          type: string
+        target:
+          type: string
+        condition:
+          type: string
+        label:
+          type: string
+
+    Policies:
+      type: object
+      properties:
+        sla:
+          type: object
+          properties:
+            max_latency_ms:
+              type: integer
+            timeout_ms:
+              type: integer
+        fallback:
+          type: object
+        escalation:
+          type: object
+        cost:
+          type: object
+        security:
+          type: object
+
+    WorkflowUploadResponse:
+      type: object
+      properties:
+        workflow_id:
+          type: string
+          format: uuid
+        version:
+          type: string
+        status:
+          type: string
+        message:
+          type: string
+
+    WorkflowList:
+      type: object
+      properties:
+        workflows:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowSummary'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    WorkflowSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        namespace:
+          type: string
+        name:
+          type: string
+        active_version:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    WorkflowDetail:
+      allOf:
+        - $ref: '#/components/schemas/WorkflowSummary'
+        - type: object
+          properties:
+            dsl:
+              type: string
+            compiled_graph:
+              type: object
+            environments:
+              type: object
+
+    ExecutionRequest:
+      type: object
+      required:
+        - session_id
+        - input
+      properties:
+        session_id:
+          type: string
+        input:
+          type: object
+          additionalProperties: true
+        context:
+          type: object
+          properties:
+            channel:
+              type: string
+            language:
+              type: string
+            tenant_id:
+              type: string
+
+    ExecutionResponse:
+      type: object
+      properties:
+        execution_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, running, completed, failed, timeout]
+        outputs:
+          type: object
+        metrics:
+          type: object
+          properties:
+            latency_ms:
+              type: integer
+            tokens_used:
+              type: integer
+            model:
+              type: string
+        trace_url:
+          type: string
+        error:
+          type: string
+
+    ExecutionDetail:
+      allOf:
+        - $ref: '#/components/schemas/ExecutionResponse'
+        - type: object
+          properties:
+            workflow_id:
+              type: string
+              format: uuid
+            version:
+              type: string
+            started_at:
+              type: string
+              format: date-time
+            completed_at:
+              type: string
+              format: date-time
+
+    ExecutionTrace:
+      type: object
+      properties:
+        execution_id:
+          type: string
+          format: uuid
+        spans:
+          type: array
+          items:
+            type: object
+            properties:
+              span_id:
+                type: string
+              parent_span_id:
+                type: string
+              node_id:
+                type: string
+              node_type:
+                type: string
+              started_at:
+                type: string
+                format: date-time
+              duration_ms:
+                type: integer
+              status:
+                type: string
+              attributes:
+                type: object
+
+    CompileResult:
+      type: object
+      properties:
+        workflow_id:
+          type: string
+          format: uuid
+        version:
+          type: string
+        status:
+          type: string
+          enum: [success, failed]
+        compiled_graph:
+          type: object
+        warnings:
+          type: array
+          items:
+            type: string
+
+    CompileError:
+      type: object
+      properties:
+        workflow_id:
+          type: string
+          format: uuid
+        version:
+          type: string
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              node_id:
+                type: string
+              error_type:
+                type: string
+              message:
+                type: string
+
+    SimulationResult:
+      type: object
+      properties:
+        workflow_id:
+          type: string
+          format: uuid
+        version:
+          type: string
+        execution_path:
+          type: array
+          items:
+            type: string
+        outputs:
+          type: object
+        metrics:
+          type: object
+
+    PublishResult:
+      type: object
+      properties:
+        workflow_id:
+          type: string
+          format: uuid
+        version:
+          type: string
+        environment:
+          type: string
+        endpoint:
+          type: string
+        status:
+          type: string
+
+    VersionList:
+      type: object
+      properties:
+        versions:
+          type: array
+          items:
+            type: object
+            properties:
+              version:
+                type: string
+              status:
+                type: string
+              created_at:
+                type: string
+                format: date-time
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        total_pages:
+          type: integer
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+              details:
+                type: object
+
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string

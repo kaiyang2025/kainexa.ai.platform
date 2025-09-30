@@ -1,0 +1,190 @@
+# Kainexa Workflow DSL Schema v1.0
+# 파일명 규칙: {namespace}-{name}-{version}.yaml
+# 예: cs-refund-flow-1.0.0.yaml
+
+version: "1.0"
+
+# 워크플로우 메타데이터
+workflow:
+  namespace: cs                    # 네임스페이스 (cs, sales, hr 등)
+  name: refund-flow               # 워크플로우 이름
+  version: 1.0.0                   # Semantic Versioning
+  
+  metadata:
+    author: admin@kainexa.ai       # 작성자
+    description: "고객 환불 처리 워크플로우"
+    tags:                          # 검색/분류용 태그
+      - refund
+      - customer-service
+      - e-commerce
+    created_at: "2025-09-30T10:00:00Z"
+    updated_at: "2025-09-30T10:00:00Z"
+
+# 노드 정의 (5가지 타입)
+nodes:
+  # 1. Intent Node - 의도 분류
+  - id: intent_classifier
+    type: intent
+    position:
+      x: 100
+      y: 100
+    config:
+      model: solar-ko-intent       # 사용할 모델
+      categories:                  # 분류 카테고리
+        - refund
+        - exchange
+        - inquiry
+        - complaint
+      confidence_threshold: 0.7    # 신뢰도 임계값
+      fallback_intent: general     # 기본 의도
+      
+  # 2. LLM Node - 언어 모델 생성
+  - id: llm_response
+    type: llm
+    position:
+      x: 300
+      y: 100
+    config:
+      model: solar-10.7b           # LLM 모델
+      temperature: 0.7             # 창의성 (0.0-1.0)
+      max_tokens: 150              # 최대 토큰
+      top_p: 0.9                   # nucleus sampling
+      system_prompt: |
+        당신은 친절한 고객 서비스 상담사입니다.
+        한국어로 정중하게 응답하세요.
+      prompt_template: |
+        고객 의도: {{intent}}
+        고객 메시지: {{message}}
+        주문번호: {{order_id}}
+        
+        위 정보를 바탕으로 환불 처리 안내를 해주세요.
+      
+  # 3. API Node - 외부 API 호출
+  - id: order_api
+    type: api
+    position:
+      x: 200
+      y: 200
+    config:
+      method: GET
+      url: "https://api.kainexa.local/orders/{{order_id}}"
+      headers:
+        Authorization: "Bearer {{api_token}}"
+        Content-Type: "application/json"
+      timeout: 5000                # 타임아웃 (ms)
+      retry:
+        max_attempts: 3
+        backoff: exponential
+      response_mapping:            # 응답 매핑
+        order_status: "$.data.status"
+        order_amount: "$.data.total_amount"
+        
+  # 4. Condition Node - 조건 분기
+  - id: check_refund_eligibility
+    type: condition
+    position:
+      x: 400
+      y: 200
+    config:
+      expression: |
+        order_status == 'completed' 
+        and days_since_purchase <= 30
+        and refund_count < 3
+      variables:
+        - order_status
+        - days_since_purchase
+        - refund_count
+        
+  # 5. Loop Node - 반복 실행
+  - id: process_items
+    type: loop
+    position:
+      x: 500
+      y: 200
+    config:
+      iterator: order_items        # 반복 대상
+      max_iterations: 10           # 최대 반복 횟수
+      parallel: false              # 병렬 처리 여부
+      body:                        # 반복 실행할 노드들
+        - check_item_status
+        - calculate_refund
+
+# 엣지 정의 (노드 연결)
+edges:
+  - id: edge_1
+    source: intent_classifier
+    target: order_api
+    condition: "intent in ['refund', 'exchange']"
+    
+  - id: edge_2
+    source: order_api
+    target: check_refund_eligibility
+    
+  - id: edge_3
+    source: check_refund_eligibility
+    target: llm_response
+    condition: "eligible == true"
+    label: "환불 가능"
+    
+  - id: edge_4
+    source: check_refund_eligibility
+    target: llm_response
+    condition: "eligible == false"
+    label: "환불 불가"
+
+# 정책 설정
+policies:
+  # SLA 정책
+  sla:
+    max_latency_ms: 3000          # 최대 응답시간
+    timeout_ms: 10000              # 전체 타임아웃
+    
+  # 폴백 정책
+  fallback:
+    on_llm_error:
+      action: use_model
+      model: gpt2-small            # 폴백 모델
+    on_api_error:
+      action: use_cache
+      ttl: 3600
+      
+  # 에스컬레이션 정책
+  escalation:
+    on_sentiment:
+      trigger: angry               # 감정 트리거
+      action: transfer_agent       # 상담사 전환
+      queue: priority              # 우선순위 큐
+    on_intent:
+      trigger: complaint
+      action: notify_supervisor
+      
+  # 비용 관리 정책
+  cost:
+    max_tokens_per_session: 1000  # 세션당 최대 토큰
+    max_cost_per_day: 100.0       # 일일 비용 한도
+    
+  # 보안 정책
+  security:
+    pii_masking: true              # PII 마스킹
+    audit_logging: true            # 감사 로깅
+    retention_days: 90             # 로그 보관 기간
+
+# 환경별 설정
+environments:
+  dev:
+    models:
+      llm: solar-10.7b-dev
+      intent: solar-intent-dev
+    api_base: https://dev-api.kainexa.local
+    
+  stage:
+    models:
+      llm: solar-10.7b-stage
+      intent: solar-intent-stage
+    api_base: https://stage-api.kainexa.local
+    
+  prod:
+    models:
+      llm: solar-10.7b
+      intent: solar-intent
+    api_base: https://api.kainexa.local
