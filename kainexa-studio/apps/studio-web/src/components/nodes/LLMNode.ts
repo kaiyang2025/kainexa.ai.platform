@@ -4,6 +4,7 @@
 // ============================
 
 import { AbstractNode, NodeType, ExecutionContext, NodeResult } from './base';
+import { z } from 'zod';
 
 const LLMConfigSchema = z.object({
   model: z.enum(['gpt-4', 'gpt-3.5-turbo', 'claude-3', 'solar']),

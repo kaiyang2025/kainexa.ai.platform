@@ -3,7 +3,7 @@
 // packages/workflow-engine/src/nodes/index.ts
 // ============================
 
-import { BaseNode, NodeType } from './base';
+import { BaseNode, NodeType, AbstractNode } from './base';
 import { IntentNode } from './IntentNode';
 import { LLMNode } from './LLMNode';
 import { APINode } from './APINode';

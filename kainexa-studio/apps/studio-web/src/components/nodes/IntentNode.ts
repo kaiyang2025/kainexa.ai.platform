@@ -1,9 +1,9 @@
 // ============================
 // 2. Intent Node
-// packages/workflow-engine/src/nodes/intent-node.ts
 // ============================
 
 import { AbstractNode, NodeType, ExecutionContext, NodeResult } from './base';
+import { z } from 'zod';
 
 // Intent 설정 스키마
 const IntentConfigSchema = z.object({
