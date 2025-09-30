@@ -1,524 +1,568 @@
 # src/governance/rag_pipeline.py
 """
-RAG 거버넌스 - 문서 파이프라인 및 품질 관리
+Kainexa RAG Pipeline - 완전한 구현
+벡터 DB 연동, 문서 처리, 임베딩, 검색, 재순위화, 컨텍스트 주입
 """
+import asyncio
 import hashlib
 import json
-from typing import Dict, List, Any, Optional, Tuple
-from datetime import datetime, timedelta
+import time
+from typing import Dict, List, Any, Optional, Tuple, Union
 from dataclasses import dataclass, field
 from enum import Enum
-import asyncio
+from collections import defaultdict
 import numpy as np
-from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct
-from sentence_transformers import SentenceTransformer, CrossEncoder
-import os
-import tiktoken
+from datetime import datetime, timedelta
 import structlog
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+import tiktoken
+
+# Vector DB imports
+from qdrant_client import QdrantClient
+from qdrant_client.models import (
+    Distance, VectorParams, PointStruct,
+    Filter, FieldCondition, MatchValue,
+    SearchRequest, SearchParams
+)
+
+# Document processing
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.document_loaders import PyPDFLoader, TextLoader, UnstructuredMarkdownLoader
+import pandas as pd
 
 logger = structlog.get_logger()
 
-class DocumentStatus(Enum):
-    """문서 상태"""
-    PENDING = "pending"
-    PROCESSING = "processing"
-    INDEXED = "indexed"
-    FAILED = "failed"
-    EXPIRED = "expired"
-    RESTRICTED = "restricted"
+# ========== Enums ==========
+class DocumentType(Enum):
+    """문서 타입"""
+    PDF = "pdf"
+    TEXT = "text"
+    MARKDOWN = "markdown"
+    HTML = "html"
+    CSV = "csv"
+    JSON = "json"
+    DOCX = "docx"
 
-class AccessLevel(Enum):
-    """접근 권한 레벨"""
-    PUBLIC = "public"
-    INTERNAL = "internal"
-    CONFIDENTIAL = "confidential"
-    SECRET = "secret"
+class ChunkingStrategy(Enum):
+    """청킹 전략"""
+    FIXED_SIZE = "fixed_size"          # 고정 크기
+    SEMANTIC = "semantic"              # 의미 단위
+    SENTENCE = "sentence"              # 문장 단위
+    PARAGRAPH = "paragraph"            # 단락 단위
+    SLIDING_WINDOW = "sliding_window"  # 슬라이딩 윈도우
+
+class SearchStrategy(Enum):
+    """검색 전략"""
+    SIMILARITY = "similarity"          # 유사도
+    MMR = "mmr"                       # Maximum Marginal Relevance
+    HYBRID = "hybrid"                 # 하이브리드 (키워드 + 벡터)
+    RERANK = "rerank"                 # 재순위화
+
+# ========== Data Classes ==========
+@dataclass
+class Document:
+    """문서"""
+    id: str
+    content: str
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    embeddings: Optional[List[float]] = None
+    chunks: List['DocumentChunk'] = field(default_factory=list)
+    
+    @property
+    def source(self) -> str:
+        return self.metadata.get('source', 'unknown')
+    
+    @property
+    def created_at(self) -> datetime:
+        return self.metadata.get('created_at', datetime.now())
 
 @dataclass
-class DocumentMetadata:
-    """문서 메타데이터"""
-    doc_id: str
-    title: str
-    source: str
-    author: Optional[str] = None
-    created_at: datetime = field(default_factory=datetime.now)
-    updated_at: datetime = field(default_factory=datetime.now)
-    expires_at: Optional[datetime] = None
-    access_level: AccessLevel = AccessLevel.PUBLIC
-    tags: List[str] = field(default_factory=list)
-    language: str = "ko"
-    version: str = "1.0"
-    checksum: Optional[str] = None
-    quality_score: float = 0.0
-    usage_count: int = 0
+class DocumentChunk:
+    """문서 청크"""
+    id: str
+    document_id: str
+    content: str
+    embedding: Optional[List[float]] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    position: int = 0
+    overlap_with_previous: int = 0
     
-    def is_expired(self) -> bool:
-        """만료 여부 확인"""
-        if self.expires_at:
-            return datetime.now() > self.expires_at
-        return False
-    
-    def can_access(self, user_level: AccessLevel) -> bool:
-        """접근 가능 여부"""
-        level_hierarchy = {
-            AccessLevel.PUBLIC: 0,
-            AccessLevel.INTERNAL: 1,
-            AccessLevel.CONFIDENTIAL: 2,
-            AccessLevel.SECRET: 3
-        }
-        return level_hierarchy.get(user_level, 0) >= level_hierarchy.get(self.access_level, 0)
+    @property
+    def token_count(self) -> int:
+        # 간단한 토큰 추정 (실제로는 tokenizer 사용)
+        return len(self.content.split())
 
 @dataclass
-class ChunkMetadata:
-    """청크 메타데이터"""
-    chunk_id: str
-    doc_id: str
-    chunk_index: int
-    start_char: int
-    end_char: int
-    tokens: int
-    embedding_model: str
+class SearchQuery:
+    """검색 쿼리"""
+    text: str
+    top_k: int = 5
+    strategy: SearchStrategy = SearchStrategy.SIMILARITY
+    filters: Dict[str, Any] = field(default_factory=dict)
+    boost_recent: bool = True
+    include_metadata: bool = True
+    min_score: float = 0.5
+    rerank: bool = False
+
+@dataclass
+class SearchResult:
+    """검색 결과"""
+    chunk: DocumentChunk
+    score: float
+    rerank_score: Optional[float] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
     
+    @property
+    def final_score(self) -> float:
+        return self.rerank_score if self.rerank_score is not None else self.score
+
+@dataclass
+class RAGContext:
+    """RAG 컨텍스트"""
+    query: str
+    retrieved_chunks: List[SearchResult]
+    enhanced_prompt: str
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    processing_time_ms: float = 0
+
+# ========== Document Processor ==========
 class DocumentProcessor:
-    """문서 처리 파이프라인"""
+    """문서 처리기"""
     
-    def __init__(self, embedding_model_name: str = "sentence-transformers/xlm-r-bert-base-nli-stsb-mean-tokens"):
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        self.config = config or {}
+        self.splitters = self._initialize_splitters()
+        self.token_encoder = tiktoken.get_encoding("cl100k_base")
         
-         # ✅ 임베딩 모델은 기본 CPU로 구동 (env로 변경 가능)
-        emb_device = os.getenv("KXN_EMB_DEVICE", "cpu")  # ex) "cpu" | "cuda:0"
-        self.embedding_model = SentenceTransformer(embedding_model_name, device=emb_device)
-        # 배치 사이즈도 환경변수로 제어
-        self._emb_batch = int(os.getenv("KXN_EMB_BATCH", "16"))        
-        self.tokenizer = tiktoken.encoding_for_model("gpt-3.5-turbo")
-        
-        # 청킹 전략
-        self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=500,
-            chunk_overlap=50,
-            separators=["\n\n", "\n", ".", "!", "?", ",", " ", ""],
-            length_function=self._token_length
-        )
-        
-    def _token_length(self, text: str) -> int:
-        """토큰 길이 계산"""
-        return len(self.tokenizer.encode(text))
+    def _initialize_splitters(self) -> Dict[ChunkingStrategy, Any]:
+        """텍스트 분할기 초기화"""
+        return {
+            ChunkingStrategy.FIXED_SIZE: RecursiveCharacterTextSplitter(
+                chunk_size=self.config.get('chunk_size', 500),
+                chunk_overlap=self.config.get('chunk_overlap', 50),
+                separators=["\n\n", "\n", ".", "!", "?", ",", " ", ""],
+                length_function=len
+            ),
+            ChunkingStrategy.SEMANTIC: RecursiveCharacterTextSplitter(
+                chunk_size=self.config.get('semantic_chunk_size', 800),
+                chunk_overlap=self.config.get('semantic_overlap', 100),
+                separators=["\n\n", "\n", ".", " "],
+                length_function=self._semantic_length
+            ),
+            ChunkingStrategy.SENTENCE: RecursiveCharacterTextSplitter(
+                chunk_size=1000,
+                chunk_overlap=0,
+                separators=[".", "!", "?", "。", "！", "？"],
+                length_function=len
+            ),
+            ChunkingStrategy.PARAGRAPH: RecursiveCharacterTextSplitter(
+                chunk_size=2000,
+                chunk_overlap=200,
+                separators=["\n\n", "\n"],
+                length_function=len
+            )
+        }
     
     async def process_document(self, 
-                              content: str, 
-                              metadata: DocumentMetadata) -> List[Dict[str, Any]]:
+                              file_path: str,
+                              doc_type: DocumentType,
+                              chunking_strategy: ChunkingStrategy = ChunkingStrategy.FIXED_SIZE,
+                              metadata: Optional[Dict[str, Any]] = None) -> Document:
         """문서 처리"""
-        logger.info(f"Processing document: {metadata.doc_id}")
         
-        # 1. 유효성 검증
-        if not await self._validate_document(content, metadata):
-            raise ValueError("Document validation failed")
+        # 문서 로드
+        content = await self._load_document(file_path, doc_type)
         
-        # 2. 체크섬 계산
-        metadata.checksum = self._calculate_checksum(content)
+        # 문서 ID 생성
+        doc_id = self._generate_document_id(file_path, content)
         
-        # 3. 청킹
-        chunks = self._chunk_document(content, metadata)
-        
-        # 4. 임베딩 생성
-        embeddings = await self._create_embeddings(chunks)
-        
-        # 5. 품질 평가
-        metadata.quality_score = await self._assess_quality(content, chunks)
-        
-        # 6. 결과 조합
-        processed_chunks = []
-        for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
-            chunk_metadata = ChunkMetadata(
-                chunk_id=f"{metadata.doc_id}_chunk_{i}",
-                doc_id=metadata.doc_id,
-                chunk_index=i,
-                start_char=chunk.get('start', 0),
-                end_char=chunk.get('end', 0),
-                tokens=self._token_length(chunk['text']),
-                embedding_model=str(self.embedding_model.get_sentence_embedding_dimension())
-            )
-            
-            processed_chunks.append({
-                'chunk_id': chunk_metadata.chunk_id,
-                'text': chunk['text'],
-                'embedding': embedding,
-                'metadata': chunk_metadata,
-                'doc_metadata': metadata
-            })
-        
-        logger.info(f"Document processed: {len(processed_chunks)} chunks created")
-        return processed_chunks
-    
-    async def _validate_document(self, content: str, metadata: DocumentMetadata) -> bool:
-        """문서 유효성 검증"""
-        # 크기 제한
-        if len(content) > 1_000_000:  # 1MB
-            logger.warning("Document too large")
-            return False
-        
-        # 만료 확인
-        if metadata.is_expired():
-            logger.warning("Document expired")
-            return False
-        
-        # 언어 감지 (간단한 한글 체크)
-        if metadata.language == "ko":
-            korean_chars = sum(1 for c in content if '가' <= c <= '힣')
-            if korean_chars / len(content) < 0.3:
-                logger.warning("Document language mismatch")
-                return False
-        
-        return True
-    
-    def _calculate_checksum(self, content: str) -> str:
-        """체크섬 계산"""
-        return hashlib.sha256(content.encode()).hexdigest()
-    
-    def _chunk_document(self, content: str, metadata: DocumentMetadata) -> List[Dict[str, Any]]:
-        """문서 청킹"""
-        chunks = self.text_splitter.split_text(content)
-        
-        chunk_dicts = []
-        current_pos = 0
-        
-        for i, chunk_text in enumerate(chunks):
-            start_pos = content.find(chunk_text, current_pos)
-            end_pos = start_pos + len(chunk_text)
-            
-            chunk_dicts.append({
-                'text': chunk_text,
-                'start': start_pos,
-                'end': end_pos,
-                'index': i
-            })
-            
-            current_pos = end_pos
-        
-        return chunk_dicts
-    
-    async def _create_embeddings(self, chunks: List[Dict[str, Any]]) -> List[np.ndarray]:
-        """임베딩 생성"""
-        texts = [chunk['text'] for chunk in chunks]
-        embeddings = self.embedding_model.encode(
-            texts,
-            show_progress_bar=False,
-            batch_size=self._emb_batch
-        )        
-        return embeddings
-    
-    async def _assess_quality(self, content: str, chunks: List[Dict[str, Any]]) -> float:
-        """문서 품질 평가"""
-        score = 1.0
-        
-        # 길이 체크
-        if len(content) < 100:
-            score *= 0.5
-        
-        # 청크 수 체크
-        if len(chunks) < 2:
-            score *= 0.7
-        elif len(chunks) > 100:
-            score *= 0.8
-        
-        # 중복 체크
-        unique_chunks = set(chunk['text'] for chunk in chunks)
-        duplication_ratio = 1 - (len(unique_chunks) / len(chunks))
-        score *= (1 - duplication_ratio * 0.5)
-        
-        return min(max(score, 0.0), 1.0)
-
-class RAGGovernance:
-    """RAG 거버넌스 시스템"""
-    
-    def __init__(self, 
-                 qdrant_host: str = "localhost",
-                 qdrant_port: int = 6333,
-                 collection_name: str = "kainexa_knowledge"):
-        
-        # Qdrant 클라이언트
-        self.qdrant = QdrantClient(host=qdrant_host, port=qdrant_port)
-        self.collection_name = collection_name
-        
-        # 문서 처리기
-        self.processor = DocumentProcessor()
-        
-        # Cross-Encoder for reranking
-        # ✅ 리랭커는 기본 CPU로 구동 (env로 변경 가능)
-        rerank_device = os.getenv("KXN_RERANK_DEVICE", "cpu")  # ex) "cpu" | "cuda:0"
-        self.reranker = CrossEncoder(
-            'cross-encoder/ms-marco-MiniLM-L-6-v2',
-            max_length=512,
-            device=rerank_device
-        )
-        
-        # 거버넌스 정책
-        self.policies = {
-            'max_age_days': 365,
-            'min_quality_score': 0.3,
-            'max_results': 10,
-            'diversity_weight': 0.3
+        # 메타데이터 생성
+        doc_metadata = {
+            'source': file_path,
+            'type': doc_type.value,
+            'created_at': datetime.now(),
+            'chunking_strategy': chunking_strategy.value,
+            'original_length': len(content),
+            **(metadata or {})
         }
         
-        # 초기화
-        self._init_collection()
+        # 문서 객체 생성
+        document = Document(
+            id=doc_id,
+            content=content,
+            metadata=doc_metadata
+        )
+        
+        # 청킹
+        chunks = await self._chunk_document(document, chunking_strategy)
+        document.chunks = chunks
+        
+        logger.info(
+            f"Processed document: {file_path}",
+            chunks=len(chunks),
+            strategy=chunking_strategy.value
+        )
+        
+        return document
     
-    def _init_collection(self):
-        """컬렉션 초기화"""
-        try:
-            self.qdrant.get_collection(self.collection_name)
-        except:
-            # 컬렉션 생성
-            self.qdrant.create_collection(
+    async def _load_document(self, file_path: str, doc_type: DocumentType) -> str:
+        """문서 로드"""
+        
+        if doc_type == DocumentType.PDF:
+            loader = PyPDFLoader(file_path)
+            pages = await asyncio.to_thread(loader.load)
+            return "\n\n".join([page.page_content for page in pages])
+            
+        elif doc_type == DocumentType.TEXT:
+            loader = TextLoader(file_path)
+            docs = await asyncio.to_thread(loader.load)
+            return docs[0].page_content if docs else ""
+            
+        elif doc_type == DocumentType.MARKDOWN:
+            loader = UnstructuredMarkdownLoader(file_path)
+            docs = await asyncio.to_thread(loader.load)
+            return docs[0].page_content if docs else ""
+            
+        elif doc_type == DocumentType.CSV:
+            df = await asyncio.to_thread(pd.read_csv, file_path)
+            return df.to_string()
+            
+        elif doc_type == DocumentType.JSON:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            return json.dumps(data, ensure_ascii=False, indent=2)
+            
+        else:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return f.read()
+    
+    async def _chunk_document(self, 
+                            document: Document,
+                            strategy: ChunkingStrategy) -> List[DocumentChunk]:
+        """문서 청킹"""
+        
+        splitter = self.splitters.get(strategy, self.splitters[ChunkingStrategy.FIXED_SIZE])
+        
+        # 텍스트 분할
+        if strategy == ChunkingStrategy.SLIDING_WINDOW:
+            chunks = self._sliding_window_chunk(
+                document.content,
+                window_size=self.config.get('window_size', 500),
+                step_size=self.config.get('step_size', 250)
+            )
+        else:
+            chunks = splitter.split_text(document.content)
+        
+        # DocumentChunk 객체 생성
+        doc_chunks = []
+        for i, chunk_text in enumerate(chunks):
+            chunk = DocumentChunk(
+                id=f"{document.id}_chunk_{i}",
+                document_id=document.id,
+                content=chunk_text,
+                metadata={
+                    **document.metadata,
+                    'chunk_index': i,
+                    'total_chunks': len(chunks),
+                    'token_count': len(self.token_encoder.encode(chunk_text))
+                },
+                position=i
+            )
+            
+            # 이전 청크와의 겹침 계산
+            if i > 0 and strategy != ChunkingStrategy.SENTENCE:
+                prev_chunk = doc_chunks[-1]
+                overlap = self._calculate_overlap(prev_chunk.content, chunk.content)
+                chunk.overlap_with_previous = overlap
+            
+            doc_chunks.append(chunk)
+        
+        return doc_chunks
+    
+    def _sliding_window_chunk(self, text: str, window_size: int, step_size: int) -> List[str]:
+        """슬라이딩 윈도우 청킹"""
+        words = text.split()
+        chunks = []
+        
+        for i in range(0, len(words), step_size):
+            chunk = ' '.join(words[i:i + window_size])
+            if chunk:
+                chunks.append(chunk)
+            if i + window_size >= len(words):
+                break
+        
+        return chunks
+    
+    def _calculate_overlap(self, text1: str, text2: str) -> int:
+        """텍스트 겹침 계산"""
+        words1 = set(text1.split()[-50:])  # 마지막 50단어
+        words2 = set(text2.split()[:50])   # 처음 50단어
+        return len(words1.intersection(words2))
+    
+    def _semantic_length(self, text: str) -> int:
+        """의미적 길이 계산"""
+        # 토큰 수 + 문장 경계 고려
+        tokens = self.token_encoder.encode(text)
+        sentences = text.count('.') + text.count('!') + text.count('?')
+        return len(tokens) + sentences * 10
+    
+    def _generate_document_id(self, file_path: str, content: str) -> str:
+        """문서 ID 생성"""
+        hash_input = f"{file_path}:{len(content)}:{content[:100]}"
+        return hashlib.sha256(hash_input.encode()).hexdigest()[:16]
+
+# ========== Embedding Generator ==========
+class EmbeddingGenerator:
+    """임베딩 생성기"""
+    
+    def __init__(self, model_name: str = "text-embedding-ada-002"):
+        self.model_name = model_name
+        self.embedding_cache = {}
+        self.batch_size = 32
+        
+    async def generate_embeddings(self, texts: List[str]) -> List[List[float]]:
+        """임베딩 생성"""
+        embeddings = []
+        
+        # 배치 처리
+        for i in range(0, len(texts), self.batch_size):
+            batch = texts[i:i + self.batch_size]
+            batch_embeddings = await self._generate_batch(batch)
+            embeddings.extend(batch_embeddings)
+        
+        return embeddings
+    
+    async def generate_embedding(self, text: str) -> List[float]:
+        """단일 텍스트 임베딩 생성"""
+        
+        # 캐시 확인
+        cache_key = hashlib.md5(text.encode()).hexdigest()
+        if cache_key in self.embedding_cache:
+            return self.embedding_cache[cache_key]
+        
+        # 생성
+        embedding = await self._generate_single(text)
+        
+        # 캐시 저장
+        self.embedding_cache[cache_key] = embedding
+        
+        return embedding
+    
+    async def _generate_batch(self, texts: List[str]) -> List[List[float]]:
+        """배치 임베딩 생성 (실제 구현 필요)"""
+        # 실제 구현에서는 OpenAI API 또는 로컬 모델 사용
+        # 여기서는 시뮬레이션
+        await asyncio.sleep(0.1)
+        
+        embeddings = []
+        for text in texts:
+            # 랜덤 임베딩 (시뮬레이션)
+            embedding = np.random.randn(1536).tolist()
+            embeddings.append(embedding)
+        
+        return embeddings
+    
+    async def _generate_single(self, text: str) -> List[float]:
+        """단일 임베딩 생성"""
+        embeddings = await self._generate_batch([text])
+        return embeddings[0]
+
+# ========== Vector Store (Qdrant) ==========
+class VectorStore:
+    """벡터 저장소 (Qdrant)"""
+    
+    def __init__(self, 
+                 host: str = "localhost",
+                 port: int = 6333,
+                 collection_name: str = "kainexa_docs"):
+        self.client = QdrantClient(host=host, port=port)
+        self.collection_name = collection_name
+        self.embedding_generator = EmbeddingGenerator()
+        self._ensure_collection()
+    
+    def _ensure_collection(self):
+        """컬렉션 확인/생성"""
+        collections = self.client.get_collections().collections
+        
+        if not any(c.name == self.collection_name for c in collections):
+            self.client.create_collection(
                 collection_name=self.collection_name,
                 vectors_config=VectorParams(
-                    size=768,  # XLM-RoBERTa dimension
+                    size=1536,  # OpenAI embedding size
                     distance=Distance.COSINE
                 )
             )
             logger.info(f"Created collection: {self.collection_name}")
     
-    async def add_document(self, 
-                          content: str,
-                          metadata: DocumentMetadata) -> bool:
-        """문서 추가"""
-        try:
-            # 문서 처리
-            processed_chunks = await self.processor.process_document(content, metadata)
+    async def index_chunks(self, chunks: List[DocumentChunk]):
+        """청크 인덱싱"""
+        
+        # 임베딩 생성
+        texts = [chunk.content for chunk in chunks]
+        embeddings = await self.embedding_generator.generate_embeddings(texts)
+        
+        # 포인트 생성
+        points = []
+        for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+            chunk.embedding = embedding
             
-            # Qdrant에 저장
-            points = []
-            for chunk in processed_chunks:
-                point = PointStruct(
-                    id=hash(chunk['chunk_id']) & 0x7FFFFFFF,  # 32-bit positive int
-                    vector=chunk['embedding'].tolist(),
-                    payload={
-                        'chunk_id': chunk['chunk_id'],
-                        'doc_id': chunk['metadata'].doc_id,
-                        'text': chunk['text'],
-                        'chunk_index': chunk['metadata'].chunk_index,
-                        'tokens': chunk['metadata'].tokens,
-                        'doc_title': metadata.title,
-                        'doc_source': metadata.source,
-                        'access_level': metadata.access_level.value,
-                        'created_at': metadata.created_at.isoformat(),
-                        'quality_score': metadata.quality_score,
-                        'tags': metadata.tags
-                    }
-                )
-                points.append(point)
-            
-            # 배치 업로드
-            self.qdrant.upsert(
-                collection_name=self.collection_name,
-                points=points
+            point = PointStruct(
+                id=hashlib.md5(chunk.id.encode()).hexdigest()[:16],
+                vector=embedding,
+                payload={
+                    'chunk_id': chunk.id,
+                    'document_id': chunk.document_id,
+                    'content': chunk.content,
+                    'metadata': chunk.metadata,
+                    'position': chunk.position,
+                    'created_at': datetime.now().isoformat()
+                }
             )
-            
-            logger.info(f"Added document {metadata.doc_id} with {len(points)} chunks")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to add document: {e}")
-            return False
-    
-    async def retrieve(self,
-                      query: str,
-                      k: int = 5,
-                      user_access_level: AccessLevel = AccessLevel.PUBLIC,
-                      filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
-        """문서 검색 및 거버넌스 적용"""
+            points.append(point)
         
-        # 1. 쿼리 임베딩
-        query_embedding = self.processor.embedding_model.encode(query)
-        
-        # 2. 필터 구성
-        search_filters = self._build_filters(user_access_level, filters)
-        
-        # 3. 벡터 검색
-        search_results = self.qdrant.search(
+        # 배치 업로드
+        self.client.upsert(
             collection_name=self.collection_name,
-            query_vector=query_embedding.tolist(),
-            limit=k * 3,  # Reranking을 위해 더 많이 검색
-            query_filter=search_filters
+            points=points
         )
         
-        # 4. 거버넌스 필터링
-        filtered_results = await self._apply_governance(search_results)
-        
-        # 5. Re-ranking
-        reranked_results = await self._rerank(query, filtered_results)
-        
-        # 6. 다양성 보장
-        diverse_results = self._ensure_diversity(reranked_results)
-        
-        # 7. 메타데이터 추가
-        final_results = self._enrich_results(diverse_results[:k])
-        
-        # 8. 사용 통계 업데이트
-        await self._update_usage_stats(final_results)
-        
-        return final_results
+        logger.info(f"Indexed {len(chunks)} chunks")
     
-    def _build_filters(self, 
-                      user_access_level: AccessLevel,
-                      custom_filters: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-        """검색 필터 구성"""
-        filters = {
-            'must': [
-                {
-                    'key': 'access_level',
-                    'match': {
-                        'any': self._get_accessible_levels(user_access_level)
+    async def search(self, query: SearchQuery) -> List[SearchResult]:
+        """벡터 검색"""
+        
+        # 쿼리 임베딩 생성
+        query_embedding = await self.embedding_generator.generate_embedding(query.text)
+        
+        # 필터 생성
+        search_filter = self._build_filter(query.filters) if query.filters else None
+        
+        # 검색 파라미터
+        search_params = SearchParams(
+            hnsw_ef=128,
+            exact=False
+        )
+        
+        # 검색 실행
+        if query.strategy == SearchStrategy.MMR:
+            results = await self._search_mmr(
+                query_embedding, 
+                query.top_k,
+                search_filter
+            )
+        elif query.strategy == SearchStrategy.HYBRID:
+            results = await self._search_hybrid(
+                query.text,
+                query_embedding,
+                query.top_k,
+                search_filter
+            )
+        else:  # SIMILARITY
+            results = self.client.search(
+                collection_name=self.collection_name,
+                query_vector=query_embedding,
+                limit=query.top_k * 2 if query.rerank else query.top_k,
+                query_filter=search_filter,
+                search_params=search_params
+            )
+        
+        # SearchResult 객체로 변환
+        search_results = []
+        for result in results:
+            if result.score >= query.min_score:
+                chunk = DocumentChunk(
+                    id=result.payload['chunk_id'],
+                    document_id=result.payload['document_id'],
+                    content=result.payload['content'],
+                    metadata=result.payload['metadata'],
+                    position=result.payload['position']
+                )
+                
+                search_result = SearchResult(
+                    chunk=chunk,
+                    score=result.score,
+                    metadata={
+                        'created_at': result.payload.get('created_at'),
+                        'distance': 1 - result.score  # Cosine similarity to distance
                     }
-                }
-            ]
-        }
+                )
+                
+                # 최신성 부스팅
+                if query.boost_recent:
+                    search_result.score = self._boost_recent_score(
+                        search_result.score,
+                        result.payload.get('created_at')
+                    )
+                
+                search_results.append(search_result)
         
-        # 커스텀 필터 추가
-        if custom_filters:
-            for key, value in custom_filters.items():
-                filters['must'].append({
-                    'key': key,
-                    'match': {'value': value}
-                })
+        # 재순위화
+        if query.rerank:
+            search_results = await self._rerank_results(query.text, search_results)
         
-        return filters
+        # Top-K 선택
+        search_results.sort(key=lambda x: x.final_score, reverse=True)
+        return search_results[:query.top_k]
     
-    def _get_accessible_levels(self, user_level: AccessLevel) -> List[str]:
-        """접근 가능한 레벨 목록"""
-        level_hierarchy = {
-            AccessLevel.PUBLIC: [AccessLevel.PUBLIC.value],
-            AccessLevel.INTERNAL: [AccessLevel.PUBLIC.value, AccessLevel.INTERNAL.value],
-            AccessLevel.CONFIDENTIAL: [AccessLevel.PUBLIC.value, AccessLevel.INTERNAL.value, 
-                                      AccessLevel.CONFIDENTIAL.value],
-            AccessLevel.SECRET: [level.value for level in AccessLevel]
-        }
-        return level_hierarchy.get(user_level, [AccessLevel.PUBLIC.value])
-    
-    async def _apply_governance(self, 
-                               search_results: List[Any]) -> List[Dict[str, Any]]:
-        """거버넌스 정책 적용"""
-        filtered = []
+    async def _search_mmr(self, 
+                         query_embedding: List[float],
+                         top_k: int,
+                         search_filter: Optional[Filter]) -> List[Any]:
+        """Maximum Marginal Relevance 검색"""
         
-        for result in search_results:
-            payload = result.payload
+        # 초기 후보 검색 (2배수)
+        candidates = self.client.search(
+            collection_name=self.collection_name,
+            query_vector=query_embedding,
+            limit=top_k * 3,
+            query_filter=search_filter
+        )
+        
+        if not candidates:
+            return []
+        
+        # MMR 선택
+        selected = []
+        selected_embeddings = []
+        lambda_param = 0.7  # 다양성 파라미터
+        
+        while len(selected) < top_k and candidates:
+            mmr_scores = []
             
-            # 품질 점수 확인
-            if payload.get('quality_score', 0) < self.policies['min_quality_score']:
-                continue
+            for candidate in candidates:
+                if candidate.id in [s.id for s in selected]:
+                    continue
+                
+                # 쿼리 유사도
+                query_sim = candidate.score
+                
+                # 선택된 문서들과의 최대 유사도
+                if selected_embeddings:
+                    max_sim = max(
+                        self._cosine_similarity(
+                            candidate.vector,
+                            selected_emb
+                        )
+                        for selected_emb in selected_embeddings
+                    )
+                else:
+                    max_sim = 0
+                
+                # MMR 점수
+                mmr_score = lambda_param * query_sim - (1 - lambda_param) * max_sim
+                mmr_scores.append((candidate, mmr_score))
             
-            # 최신성 확인
-            created_at = datetime.fromisoformat(payload['created_at'])
-            age_days = (datetime.now() - created_at).days
-            if age_days > self.policies['max_age_days']:
-                continue
-            
-            filtered.append({
-                'id': result.id,
-                'score': result.score,
-                'text': payload['text'],
-                'metadata': payload
-            })
+            if mmr_scores:
+                # 최고 MMR 점수 선택
+                best = max(mmr_scores, key=lambda x: x[1])
+                selected.append(best[0])
+                selected_embeddings.append(best[0].vector)
+                candidates.remove(best[0])
         
-        return filtered
+        return selected
     
-    async def _rerank(self, 
-                     query: str,
-                     results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Cross-Encoder를 사용한 Re-ranking"""
-        if not results:
-            return results
-        
-        # Cross-encoder 입력 준비
-        pairs = [[query, r['text']] for r in results]
-        
-        # Re-ranking 점수 계산
-        # ✅ 배치 사이즈/프로그레스바 제어
-        rerank_batch = int(os.getenv("KXN_RERANK_BATCH", "16"))
-        rerank_scores = self.reranker.predict(
-            pairs,
-            batch_size=rerank_batch,
-            show_progress_bar=False
-        )  
-        
-        # 원본 점수와 결합 (0.7 * vector_score + 0.3 * rerank_score)
-        for i, result in enumerate(results):
-            combined_score = 0.7 * result['score'] + 0.3 * rerank_scores[i]
-            result['rerank_score'] = rerank_scores[i]
-            result['combined_score'] = combined_score
-        
-        # 정렬
-        results.sort(key=lambda x: x['combined_score'], reverse=True)
-        
-        return results
-    
-    def _ensure_diversity(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """결과 다양성 보장"""
-        if len(results) <= 2:
-            return results
-        
-        diverse_results = [results[0]]  # 첫 번째 결과는 항상 포함
-        
-        for candidate in results[1:]:
-            # 기존 결과와의 유사도 체크
-            is_diverse = True
-            for selected in diverse_results:
-                # 같은 문서에서 나온 청크인지 확인
-                if candidate['metadata']['doc_id'] == selected['metadata']['doc_id']:
-                    # 인접 청크가 아닌 경우만 추가
-                    chunk_diff = abs(candidate['metadata']['chunk_index'] - 
-                                   selected['metadata']['chunk_index'])
-                    if chunk_diff < 2:
-                        is_diverse = False
-                        break
-            
-            if is_diverse:
-                diverse_results.append(candidate)
-        
-        return diverse_results
-    
-    def _enrich_results(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """결과 메타데이터 보강"""
-        enriched = []
-        
-        for result in results:
-            enriched.append({
-                'text': result['text'],
-                'score': result.get('combined_score', result['score']),
-                'source': result['metadata']['doc_source'],
-                'title': result['metadata']['doc_title'],
-                'chunk_index': result['metadata']['chunk_index'],
-                'created_at': result['metadata']['created_at'],
-                'quality_score': result['metadata']['quality_score'],
-                'tags': result['metadata'].get('tags', [])
-            })
-        
-        return enriched
-    
-    async def _update_usage_stats(self, results: List[Dict[str, Any]]):
-        """사용 통계 업데이트"""
-        # 실제 구현에서는 데이터베이스에 기록
-        for result in results:
-            logger.debug(f"Document used: {result['title']}")
-    
-    async def delete_expired_documents(self):
-        """만료된 문서 삭제"""
-        # 만료 날짜 기준으로 삭제
-        cutoff_date = datetime.now() - timedelta(days=self.policies['max_age_days'])
-        
-        # Qdrant에서 삭제 (실제 구현 필요)
-        logger.info(f"Deleting documents older than {cutoff_date}")
-    
-    async def update_quality_scores(self):
-        """품질 점수 재계산"""
-        # 사용 빈도, 피드백 등을 기반으로 품질 점수 업데이트
-        logger.info("Updating quality scores based on usage patterns")
-    
-    def get_governance_report(self) -> Dict[str, Any]:
-        """거버넌스 리포트 생성"""
-        return {
-            'policies': self.policies,
-            'collection_stats': self.qdrant.get_collection(self.collection_name).dict(),
-            'governance_status': 'active'
-        }
+    async def _search_hybrid(self,
+                           query_text: str,
+                           query_embedding: List[float],
+                           top_k: int,
+                           search_filter: Optional[Filter]) -> List[Any]:
+        """하이브

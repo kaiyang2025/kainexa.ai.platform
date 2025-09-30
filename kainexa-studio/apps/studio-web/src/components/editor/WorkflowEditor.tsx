@@ -28,9 +28,9 @@ import APINode from './nodes/APINode';
 import ConditionNode from './nodes/ConditionNode';
 import LoopNode from './nodes/LoopNode';
 
-import NodePalette from './panels/NodePalette';
-import PropertiesPanel from './panels/PropertiesPanel';
-import DebugPanel from './panels/DebugPanel';
+import NodePalette from '../panels/NodePalette';
+import PropertiesPanel from '../panels/PropertiesPanel';
+import DebugPanel from '../panels/DebugPanel';
 
 const nodeTypes = {
   intent: IntentNode,

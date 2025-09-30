@@ -1,0 +1,465 @@
+# configs/policies/default_policies.yaml
+# Kainexa 기본 정책 설정
+version: "1.0"
+description: "Kainexa Platform Default Policy Configuration"
+
+# ========== 글로벌 정책 ==========
+global_policies:
+  
+  # SLA 정책
+  sla:
+    max_latency_seconds: 30          # 전체 응답 최대 시간
+    warning_threshold_seconds: 20     # 경고 임계값
+    escalate_on_violation: true      # SLA 위반시 에스컬레이션
+    
+  # 비용 제한
+  cost_limit:
+    max_per_session: 1.0              # 세션당 최대 비용 ($)
+    max_per_request: 0.1              # 요청당 최대 비용 ($)
+    monthly_budget: 10000             # 월 예산 ($)
+    daily_budget: 500                 # 일 예산 ($)
+    fallback_model: "slm-ko-3b"       # 비용 초과시 폴백 모델
+    
+  # Rate Limiting (기본값)
+  rate_limiting:
+    default:
+      max_requests: 10
+      period_seconds: 60
+      scope: "session"                # session | global | tenant
+    
+  # 보안 정책
+  security:
+    max_input_length: 4000            # 최대 입력 길이
+    block_patterns:                   # 차단 패턴
+      - "(?i)(password|passwd|pwd)"
+      - "(?i)(credit.?card|card.?number)"
+      - "(?i)(social.?security|ssn)"
+    pii_masking: true                 # PII 마스킹 활성화
+    
+  # 모니터링
+  monitoring:
+    trace_sampling_rate: 0.1         # 추적 샘플링 비율 (10%)
+    metrics_interval_seconds: 60     # 메트릭 수집 간격
+    alert_on_error_rate: 0.05        # 에러율 알림 임계값 (5%)
+
+# ========== 에스컬레이션 규칙 ==========
+escalation_rules:
+  
+  # 매우 부정적 감정
+  very_negative_sentiment:
+    conditions:
+      - field: "sentiment.label"
+        operator: "=="
+        value: "negative"
+      - field: "sentiment.score"
+        operator: ">"
+        value: 0.8
+    target: "senior_agent"
+    priority: 90
+    metadata:
+      reason: "Very negative customer sentiment"
+      queue: "priority"
+      
+  # 낮은 신뢰도
+  low_confidence:
+    conditions:
+      - field: "confidence"
+        operator: "<"
+        value: 0.5
+    target: "expert"
+    priority: 70
+    metadata:
+      reason: "Low AI confidence"
+      
+  # 긴급 요청
+  urgent_request:
+    conditions:
+      - field: "user_message"
+        operator: "regex"
+        value: ".*(긴급|급해|빨리|당장|urgent|asap|emergency).*"
+    target: "priority_queue"
+    priority: 85
+    metadata:
+      reason: "Urgent request detected"
+      
+  # 환불 관련
+  refund_request:
+    conditions:
+      - field: "intent.name"
+        operator: "in"
+        value: ["refund", "환불", "취소", "반품"]
+      - field: "amount"
+        operator: ">"
+        value: 100000  # 10만원 이상
+    target: "refund_specialist"
+    priority: 75
+    metadata:
+      reason: "High-value refund request"
+      
+  # 반복 실패
+  repeated_failure:
+    conditions:
+      - field: "failure_count"
+        operator: ">="
+        value: 3
+    target: "supervisor"
+    priority: 80
+    metadata:
+      reason: "Multiple failures detected"
+
+# ========== 폴백 체인 ==========
+fallback_chains:
+  
+  # GPT-4 폴백
+  "gpt-4":
+    - target: "gpt-3.5"
+      condition:
+        field: "error_type"
+        operator: "=="
+        value: "rate_limit"
+    - target: "solar-10.7b"
+      condition:
+        field: "cost_limit_reached"
+        operator: "=="
+        value: true
+    - target: "slm-ko-3b"
+      # 조건 없음 - 최종 폴백
+      
+  # Solar 모델 폴백
+  "solar-10.7b":
+    - target: "solar-10.7b-cached"  # 캐시된 버전
+      condition:
+        field: "latency_critical"
+        operator: "=="
+        value: true
+    - target: "slm-ko-3b"
+    
+  # API 서비스 폴백
+  "primary_api":
+    - target: "secondary_api"
+      condition:
+        field: "status_code"
+        operator: "in"
+        value: [500, 502, 503, 504]
+    - target: "cache"
+      condition:
+        field: "timeout"
+        operator: "=="
+        value: true
+
+# ========== 노드별 정책 ==========
+node_policies:
+  
+  # Intent 노드
+  intent_node:
+    confidence_threshold: 0.7
+    rate_limit:
+      max_requests: 20
+      period_seconds: 60
+      scope: "session"
+    timeout_seconds: 3
+    cache:
+      enabled: true
+      ttl_seconds: 300
+      key_fields: ["user_message", "language"]
+      
+  # LLM 생성 노드
+  llm_generate_node:
+    confidence_threshold: 0.6
+    rate_limit:
+      max_requests: 5
+      period_seconds: 60
+      scope: "session"
+    timeout_seconds: 10
+    retry:
+      max: 2
+      backoff: 1.5
+      on_error: "timeout"
+    ab_test:
+      enabled: true
+      variants:
+        - name: "control"
+          weight: 70
+          model: "solar-10.7b"
+        - name: "experiment"
+          weight: 30
+          model: "solar-10.7b-instruct"
+          
+  # API 호출 노드
+  api_call_node:
+    timeout_seconds: 5
+    retry:
+      max: 3
+      backoff: 2.0
+      on_error: "connection"
+    circuit_breaker:
+      failure_threshold: 5
+      recovery_timeout: 30
+      half_open_requests: 2
+      
+  # 조건 분기 노드
+  condition_node:
+    timeout_seconds: 1
+    cache:
+      enabled: true
+      ttl_seconds: 60
+
+# ========== A/B 테스트 ==========
+ab_tests:
+  
+  # 프롬프트 테스트
+  prompt_optimization:
+    enabled: true
+    start_date: "2024-01-01"
+    end_date: "2024-03-31"
+    variants:
+      - name: "baseline"
+        weight: 50
+        config:
+          prompt_style: "standard"
+      - name: "enhanced"
+        weight: 50
+        config:
+          prompt_style: "chain_of_thought"
+    metrics:
+      - "response_quality"
+      - "latency"
+      - "token_usage"
+      
+  # 모델 테스트
+  model_comparison:
+    enabled: false
+    variants:
+      - name: "solar"
+        weight: 33
+        config:
+          model: "solar-10.7b"
+      - name: "gpt35"
+        weight: 33
+        config:
+          model: "gpt-3.5-turbo"
+      - name: "lightweight"
+        weight: 34
+        config:
+          model: "slm-ko-3b"
+
+# ========== 환경별 오버라이드 ==========
+environments:
+  
+  # 개발 환경
+  dev:
+    global_policies:
+      sla:
+        max_latency_seconds: 60    # 개발은 느려도 OK
+      cost_limit:
+        max_per_session: 10.0      # 테스트용 높은 한도
+      monitoring:
+        trace_sampling_rate: 1.0   # 모든 요청 추적
+        
+  # 스테이징 환경
+  stage:
+    global_policies:
+      sla:
+        max_latency_seconds: 45
+      monitoring:
+        trace_sampling_rate: 0.5
+        
+  # 프로덕션 환경
+  prod:
+    global_policies:
+      sla:
+        max_latency_seconds: 30
+        escalate_on_violation: true
+      cost_limit:
+        max_per_session: 1.0
+        monthly_budget: 10000
+      monitoring:
+        trace_sampling_rate: 0.1
+
+# ========== 커스텀 정책 ==========
+custom_policies:
+  
+  # 영업 시간 체크
+  business_hours:
+    name: "Business Hours Check"
+    conditions:
+      - field: "current_hour"
+        operator: "not_in"
+        value: [9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
+    action: "escalate"
+    metadata:
+      escalation_target: "after_hours_queue"
+      message: "Outside business hours"
+    priority: 50
+    
+  # VIP 고객
+  vip_customer:
+    name: "VIP Customer Priority"
+    conditions:
+      - field: "customer.tier"
+        operator: "=="
+        value: "VIP"
+    action: "escalate"
+    metadata:
+      escalation_target: "vip_specialist"
+      queue_priority: 1
+    priority: 95
+    
+  # 반복 고객
+  returning_customer:
+    name: "Returning Customer"
+    conditions:
+      - field: "session_count"
+        operator: ">"
+        value: 5
+    logic: "AND"
+    action: "continue"
+    metadata:
+      apply_discount: true
+      personalization_level: "high"
+      
+  # 한국어 처리
+  korean_language:
+    name: "Korean Language Processing"
+    conditions:
+      - field: "language"
+        operator: "in"
+        value: ["ko", "ko-KR"]
+    action: "continue"
+    metadata:
+      use_honorifics: true
+      model_override: "solar-ko-10.7b"
+
+# ========== 회로 차단기 설정 ==========
+circuit_breakers:
+  
+  # 외부 API
+  external_api:
+    failure_threshold: 5          # 실패 횟수 임계값
+    recovery_timeout_seconds: 30  # 복구 대기 시간
+    half_open_requests: 2         # Half-open 상태 요청 수
+    
+  # 데이터베이스
+  database:
+    failure_threshold: 10
+    recovery_timeout_seconds: 60
+    half_open_requests: 3
+    
+  # 모델 서비스
+  model_service:
+    failure_threshold: 3
+    recovery_timeout_seconds: 20
+    half_open_requests: 1
+
+# ========== 캐싱 정책 ==========
+caching:
+  
+  # 의도 분류 캐시
+  intent_classification:
+    enabled: true
+    ttl_seconds: 300              # 5분
+    max_size_mb: 100
+    eviction_policy: "LRU"
+    
+  # LLM 응답 캐시
+  llm_responses:
+    enabled: true
+    ttl_seconds: 600              # 10분
+    max_size_mb: 500
+    eviction_policy: "LFU"
+    similarity_threshold: 0.95    # 유사도 임계값
+    
+  # RAG 검색 캐시
+  rag_search:
+    enabled: true
+    ttl_seconds: 1800             # 30분
+    max_size_mb: 200
+    eviction_policy: "LRU"
+
+# ========== 알림 설정 ==========
+alerts:
+  
+  # Slack 알림
+  slack:
+    enabled: true
+    webhook_url: "${SLACK_WEBHOOK_URL}"
+    channels:
+      errors: "#kainexa-errors"
+      escalations: "#kainexa-escalations"
+      costs: "#kainexa-costs"
+      
+  # 이메일 알림
+  email:
+    enabled: false
+    smtp_server: "smtp.gmail.com"
+    from_address: "alerts@kainexa.ai"
+    recipients:
+      - "admin@kainexa.ai"
+      - "ops@kainexa.ai"
+      
+  # 알림 규칙
+  rules:
+    - name: "High Error Rate"
+      condition:
+        metric: "error_rate"
+        operator: ">"
+        value: 0.05
+      channels: ["slack", "email"]
+      
+    - name: "Cost Overrun"
+      condition:
+        metric: "daily_cost"
+        operator: ">"
+        value: 500
+      channels: ["slack"]
+      
+    - name: "SLA Violation"
+      condition:
+        metric: "p95_latency"
+        operator: ">"
+        value: 30
+      channels: ["slack"]
+
+# ========== 메트릭 정의 ==========
+metrics:
+  
+  # 수집할 메트릭
+  collection:
+    - name: "request_count"
+      type: "counter"
+      labels: ["workflow", "node", "status"]
+      
+    - name: "response_time"
+      type: "histogram"
+      labels: ["workflow", "node"]
+      buckets: [0.1, 0.5, 1, 2, 5, 10, 30]
+      
+    - name: "token_usage"
+      type: "counter"
+      labels: ["model", "type"]
+      
+    - name: "cost"
+      type: "counter"
+      labels: ["tenant", "model"]
+      
+    - name: "confidence_score"
+      type: "gauge"
+      labels: ["workflow", "node"]
+      
+  # 대시보드
+  dashboards:
+    - name: "Operations"
+      refresh_interval: 30
+      panels:
+        - metric: "request_count"
+          visualization: "line"
+        - metric: "response_time"
+          visualization: "heatmap"
+          
+    - name: "Costs"
+      refresh_interval: 300
+      panels:
+        - metric: "cost"
+          visualization: "stacked_bar"
+        - metric: "token_usage"
+          visualization: "pie"
