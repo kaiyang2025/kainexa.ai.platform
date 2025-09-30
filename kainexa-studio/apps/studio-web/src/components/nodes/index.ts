@@ -4,9 +4,9 @@
 // ============================
 
 import { BaseNode, NodeType } from './base';
-import { IntentNode } from './intent-node';
-import { LLMNode } from './llm-node';
-import { APINode } from './api-node';
+import { IntentNode } from './IntentNode';
+import { LLMNode } from './LLMNode';
+import { APINode } from './APINode';
 
 export class NodeFactory {
   static createNode(nodeData: BaseNode): AbstractNode {
@@ -35,6 +35,6 @@ export class NodeFactory {
 }
 
 export * from './base';
-export { IntentNode } from './intent-node';
-export { LLMNode } from './llm-node';
-export { APINode } from './api-node';
+export { IntentNode } from './IntentNode';
+export { LLMNode } from './LLMNode';
+export { APINode } from './APINode';
