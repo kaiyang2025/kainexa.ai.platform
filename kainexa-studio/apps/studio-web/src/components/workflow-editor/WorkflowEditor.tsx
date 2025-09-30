@@ -22,11 +22,11 @@ import 'reactflow/dist/style.css';
 import { API } from '@/config/api.config';
 
 // Custom Nodes (기존과 동일)
-import IntentNode from './nodes/IntentNode';
-import LLMNode from './nodes/LLMNode';
-import APINode from './nodes/APINode';
-import ConditionNode from './nodes/ConditionNode';
-import LoopNode from './nodes/LoopNode';
+import IntentNode from '../nodes/IntentNode';
+import LLMNode from '../nodes/LLMNode';
+import APINode from '../nodes/APINode';
+import ConditionNode from '../nodes/ConditionNode';
+import LoopNode from '../nodes/LoopNode';
 
 import NodePalette from '../panels/NodePalette';
 import PropertiesPanel from '../panels/PropertiesPanel';
