@@ -35,6 +35,7 @@ class ModelType(Enum):
     SMALL = "small"          # 소형 모델 (1-3B)
     SPECIALIZED = "specialized"  # 특화 모델
 
+
 # --- 호환 심볼 (테스트용) ---
 class ModelHealth(Enum):
     HEALTHY = "healthy"
