@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 # src/core/orchestration/model_router.py
 """
 Kainexa Model Router - 완전한 구현
@@ -13,8 +12,11 @@ from typing import Any, Dict, List, Optional
 from collections import defaultdict
 import hashlib
 import json
-import numpy as np
 import structlog
+try:
+    import aiohttp
+except Exception:
+    aiohttp = None
 from abc import ABC, abstractmethod
 try:
      import torch  # optional
@@ -22,6 +24,7 @@ try:
 except Exception:
      torch = None
      _TORCH_AVAILABLE = False
+
 
 logger = structlog.get_logger()
 
@@ -40,7 +43,7 @@ class ModelHealth(Enum):
 @dataclass
 class ModelProfile:
     name: str
-    type: 'ModelType'   # now defined above
+    type: "ModelType"   # now defined above
     endpoint: Optional[str] = None
     max_tokens: int = 2048
     cost_per_token: float = 0.0
@@ -104,7 +107,6 @@ class PriorityBasedStrategy:
 
 class HealthMonitor:
     async def check_health(self, model: ModelProfile) -> ModelHealth:
-        import aiohttp
         url = (model.endpoint or "").rstrip("/") + "/health"
         async with aiohttp.ClientSession() as s:
             async with s.get(url, timeout=2) as r:
