@@ -21,6 +21,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi import Response
+from fastapi import Request
 
 app = FastAPI(title="Kainexa API", version="...")
 
@@ -32,11 +33,8 @@ class EnsureCORSHeaders(BaseHTTPMiddleware):
         response = await call_next(request)
         if request.method == "OPTIONS":
             # 없으면 기본값으로 채워서 테스트 기대 충족
-            if "access-control-allow-headers" not in response.headers:
-                response.headers["Access-Control-Allow-Headers"] = "*"
+            response.headers.setdefault("Access-Control-Allow-Headers", "*")
         return response
-
-app.add_middleware(EnsureCORSHeaders)
 
 # CORS (테스트에서 OPTIONS 프리플라이트 확인)
 app.add_middleware(
@@ -47,6 +45,8 @@ app.add_middleware(
     allow_credentials=False,
     max_age=600,
 )
+
+app.add_middleware(EnsureCORSHeaders)
 
 class StaticRateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
