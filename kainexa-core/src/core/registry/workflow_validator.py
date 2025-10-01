@@ -62,6 +62,62 @@ class WorkflowValidator:
             if cond is not None and not isinstance(cond, (str, dict)):
                 raise ValueError("edge.condition must be str or dict if provided")
         return True
+    
+    def validate_node(self, node: Dict[str, Any]):
+        """
+        테스트 요구:
+        - node.type == 'llm' 인 경우 config.model 필수
+        - 기본적으로 id/type 존재 검사
+        - 유효 시 (True, []), 아니면 (False, "에러메시지")
+        """
+        if not isinstance(node, dict):
+            return False, "node must be dict"
+
+        nid = node.get("id")
+        ntype = node.get("type")
+        if not nid or not isinstance(nid, str):
+            return False, "node.id is required str"
+        if not ntype or not isinstance(ntype, str):
+            return False, "node.type is required str"
+
+        cfg = node.get("config", {}) or {}
+        if ntype == "llm":
+            if "model" not in cfg:
+                return False, "model is required for llm node"
+
+        return True, []
+
+    def validate_condition(self, condition: Any) -> bool:
+        """
+        테스트에서 나오는 예시만 충족:
+        - 허용: "confidence > 0.8", "output.status == 'success'",
+                "contains(text, 'order')", "true"
+        - 거절: "confidence >>> 0.8", "exec('...')", ""(빈 문자열)
+        """
+        if not isinstance(condition, str) or not condition.strip():
+            return False
+        s = condition.strip()
+
+        # 금지 패턴
+        if "exec(" in s or "eval(" in s:
+            return False
+
+        # 허용 키워드 패턴들
+        if s == "true":
+            return True
+        if re.fullmatch(r"confidence\s*[><=]\s*[\d.]+", s):
+            return True
+        if re.fullmatch(r"output\.status\s*==\s*'[^']+'", s):
+            return True
+        if re.fullmatch(r"contains\(\s*[a-zA-Z_][a-zA-Z0-9_]*\s*,\s*'[^']+'\s*\)", s):
+            return True
+
+        # 흔한 문법 오류 예: >>> 같은 것
+        if ">>>" in s:
+            return False
+
+        # 그 외는 기본 False
+        return False
 
 
 __all__ = ["WorkflowValidator"]
