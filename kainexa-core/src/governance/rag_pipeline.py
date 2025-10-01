@@ -14,6 +14,8 @@ from collections import defaultdict
 import numpy as np
 from datetime import datetime, timedelta
 import structlog
+import re
+from types import SimpleNamespace
 import tiktoken
 
 # Vector DB imports
@@ -565,4 +567,66 @@ class VectorStore:
                            query_embedding: List[float],
                            top_k: int,
                            search_filter: Optional[Filter]) -> List[Any]:
-        """하이브
+        """
+        하이브리드 검색 (키워드 + 벡터)
+        1) 벡터 유사도로 후보군을 넉넉히 가져온 뒤
+        2) 질의어 토큰의 등장 빈도로 키워드 점수를 계산
+        3) 두 점수를 가중 결합하여 상위 top_k 반환
+        """
+        # 1) 벡터 후보 (여유 있게 N배수)
+        candidate_multiplier = 4
+        candidates = self.client.search(
+            collection_name=self.collection_name,
+            query_vector=query_embedding,
+            limit=max(top_k * candidate_multiplier, top_k),
+            query_filter=search_filter,
+            search_params=SearchParams(hnsw_ef=128, exact=False),
+        ) or []
+
+        if not candidates:
+            return []
+
+        # 2) 키워드 토큰화 (한/영/숫자 기준)
+        tokens = [t for t in re.split(r"[^0-9A-Za-z가-힣]+", query_text) if t]
+        tokens = [t for t in tokens if len(t) > 1]  # 단일 문자 노이즈 제거
+
+        # 벡터 점수 정규화 준비
+        v_scores = [c.score for c in candidates]
+        v_min, v_max = min(v_scores), max(v_scores)
+        def norm_vec(x: float) -> float:
+            return 0.0 if v_max == v_min else (x - v_min) / (v_max - v_min)
+
+        # 3) 키워드 점수 계산 + 결합
+        kw_counts = []
+        for c in candidates:
+            text = c.payload.get("content", "") if hasattr(c, "payload") else ""
+            # 간단한 포함 횟수 기반 점수
+            count = 0
+            if tokens and text:
+                # 대소문자/한글 그대로 match (요구 시 lower() 적용)
+                for tok in tokens:
+                    if tok:
+                        count += text.count(tok)
+            kw_counts.append(count)
+
+        kw_max = max(kw_counts) if kw_counts else 0
+        def norm_kw(x: int) -> float:
+            return 0.0 if kw_max == 0 else (x / kw_max)
+
+        alpha = 0.7  # 벡터 가중
+        beta = 0.3   # 키워드 가중
+
+        combined = []
+        for c, kw in zip(candidates, kw_counts):
+            combined_score = alpha * norm_vec(c.score) + beta * norm_kw(kw)
+            combined.append(
+                SimpleNamespace(
+                    id=getattr(c, "id", None),
+                    score=combined_score,
+                    payload=getattr(c, "payload", {}),
+                    vector=getattr(c, "vector", None),
+                )
+            )
+
+        combined.sort(key=lambda x: x.score, reverse=True)
+        return combined[:top_k]
