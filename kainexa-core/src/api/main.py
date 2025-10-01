@@ -32,15 +32,24 @@ logger = structlog.get_logger()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
     logger.info("Starting Kainexa Core API", version=settings.APP_VERSION)
-    await redis_client.connect()
-    
+
+    # 테스트 환경에서는 연결/종료를 생략하거나 실패 무시
+    try:
+        if not getattr(settings, "TESTING", False):
+            await redis_client.connect()
+    except Exception as e:
+        logger.warning("Redis connect skipped in testing or failed: %s", e)
+
     yield
-    
-    # Shutdown
-    await redis_client.disconnect()
-    await engine.dispose()
+
+    try:
+        if not getattr(settings, "TESTING", False):
+            await redis_client.disconnect()
+            await engine.dispose()
+    except Exception as e:
+        logger.warning("Shutdown cleanup skipped in testing or failed: %s", e)
+
     logger.info("Shutting down Kainexa Core API")
 
 # Create FastAPI app
