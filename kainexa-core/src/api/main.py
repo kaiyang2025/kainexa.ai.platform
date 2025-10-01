@@ -25,6 +25,8 @@ from fastapi import Response
 app = FastAPI(title="Kainexa Core API (Test Stub)")
 app_start_ts = time.time()
 
+app.add_middleware(EnsureCORSHeaders)
+
 # CORS (테스트에서 OPTIONS 프리플라이트 확인)
 app.add_middleware(
     CORSMiddleware,
@@ -206,10 +208,18 @@ async def compile_workflow_with_id(
     if not wf:
         raise HTTPException(status_code=404, detail="workflow not found")
 
-    # 요청 바디에 version 없으면 최신 버전
     version = (body.version if body else None) or max(wf["versions"].keys())
-    return {"status": "compiled", "workflow_id": workflow_id, "version": version, "warnings": []}
 
+    # ✅ 테스트가 요구하는 필드 추가
+    compiled_graph = {"nodes": [], "edges": []}
+
+    return {
+        "status": "compiled",
+        "workflow_id": workflow_id,
+        "version": version,
+        "warnings": [],
+        "compiled_graph": compiled_graph,   # ← 여기 추가
+    }
 class ExecuteRequest(BaseModel):
     input: Dict[str, Any]
     context: Optional[Dict[str, Any]] = None
