@@ -726,8 +726,6 @@ class Reranker:
         return sorted(scored, key=lambda x: x["_rerank"], reverse=True)
     
 
-
-
 class RAGPipeline:
     """유닛테스트 호환용 오케스트레이션 레이어(기존 완전 구현은 VectorStore/Processor로 처리)"""
     def __init__(self, config: Dict[str, Any]):
