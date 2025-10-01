@@ -11,7 +11,7 @@ from datetime import datetime
 from uuid import UUID, uuid4
 import asyncio
 import asyncpg
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 import structlog
 from enum import Enum
 from types import SimpleNamespace
@@ -55,17 +55,19 @@ class WorkflowDSL(BaseModel):
     edges: List[Dict[str, Any]]
     policies: Optional[Dict[str, Any]] = Field(default_factory=dict)
     environments: Optional[Dict[str, Any]] = Field(default_factory=dict)
-    
-    @validator('version')
-    def validate_version(cls, v):
+
+    @field_validator('version')
+    @classmethod
+    def validate_version(cls, v: str) -> str:
         """Validate semantic versioning"""
         import re
         if not re.match(r'^\d+\.\d+\.\d+$', v):
             raise ValueError(f"Invalid version format: {v}. Use semantic versioning (e.g., 1.0.0)")
         return v
-    
-    @validator('nodes')
-    def validate_nodes(cls, v):
+
+    @field_validator('nodes')
+    @classmethod
+    def validate_nodes(cls, v: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Validate node structure"""
         for node in v:
             if 'id' not in node or 'type' not in node:
