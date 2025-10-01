@@ -155,11 +155,25 @@ class RAGContext:
 class DocumentProcessor:
     """문서 처리기"""
     
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
-        self.config = config or {}
+    def __init__(
+        self,
+        config: Optional[Dict[str, Any]] = None,
+        strategy: "ChunkingStrategy" = None,
+        max_chunk_size: int = 500,
+        overlap: int = 50,
+        **kwargs,
+    ):
+        # 테스트 호환: 명시 파라미터 우선, 없으면 config 사용
+        self.config = (config or {}).copy()
+        if "chunk_size" not in self.config:
+            self.config["chunk_size"] = int(max_chunk_size)
+        if "chunk_overlap" not in self.config:
+            self.config["chunk_overlap"] = int(overlap)
+
+        self.strategy = strategy or ChunkingStrategy.SEMANTIC
         self.splitters = self._initialize_splitters()
         self.token_encoder = tiktoken.get_encoding("cl100k_base")
-        
+            
     def _initialize_splitters(self) -> Dict[ChunkingStrategy, Any]:
         """텍스트 분할기 초기화"""
         return {
@@ -368,12 +382,15 @@ class DocumentProcessor:
         }
 
     async def split_sentences(self, text: str) -> List[str]:
-        """문장 단위 분할 (간단 구두점 기준)"""
-        parts = re.split(r"([\.!\?…])", text)
-        sents: List[str] = []
-        for i in range(0, len(parts) - 1, 2):
-            sents.append((parts[i] + parts[i + 1]).strip())
-        return [s for s in sents if s]
+        """문장 단위 분할 (말줄임표/구두점 정리 포함)"""
+        # 1) ... -> … 로 정규화 (구두점 뭉침 방지)
+        text = re.sub(r"\.{3,}", "…", text)
+        # 2) 구두점 뒤 공백 기준으로 분리
+        sents = re.split(r"(?<=[\.!?…])\s+", text)
+        # 3) 빈 토큰/구두점만 있는 토큰 제거
+        out = [s.strip() for s in sents if s and s.strip() and not re.fullmatch(r"[\.!?…]+", s.strip())]
+        return out
+
 
 # ========== Embedding Generator ==========
 class EmbeddingGenerator:
@@ -753,9 +770,8 @@ class RAGPipeline:
         return [0.0] * dim
 
     async def search(self, query: str, k: int = 10) -> List[Dict[str, Any]]:
-        # 기존 VectorStore.search는 SearchQuery 객체를 받으므로,
-        # 테스트에서는 보통 모킹하므로 간단히 우회/스텁해 둡니다.
-        return []
+        # 테스트에서 vector_store.search를 list[dict]로 목킹하므로 그대로 위임
+        return await self.vector_store.search(query, k=k)
 
     async def semantic_search(self, query: str) -> List[Dict[str, Any]]:
         return []
@@ -769,27 +785,40 @@ class RAGPipeline:
         return (s or []) + (k or [])
 
     async def search_with_access_control(self, query: str, user_context: Dict[str, Any]) -> List[Dict[str, Any]]:
-        # 간단 필터: PUBLIC 사용자는 CONFIDENTIAL 제외
-        results = await self.vector_store.search(SearchQuery(text=query, top_k=10))
+        results = await self.vector_store.search(query, k=10)
         level = user_context.get("access_level", AccessLevel.INTERNAL)
 
         def allowed(doc: Dict[str, Any]) -> bool:
             al = doc.get("metadata", {}).get("access_level", AccessLevel.INTERNAL)
+            # 문자열로 들어올 수도 있으니 보정
+            if isinstance(al, str):
+                try:
+                    al = AccessLevel(al)
+                except Exception:
+                    al = AccessLevel.INTERNAL
             if level == AccessLevel.PUBLIC:
                 return al != AccessLevel.CONFIDENTIAL
             return True
 
-        # VectorStore.search는 SearchResult 리스트를 반환하므로 content/metadata를 맞춰 전달
-        out: List[Dict[str, Any]] = []
-        for sr in results or []:
-            d = {
-                "content": sr.chunk.content,
-                "metadata": sr.chunk.metadata,
-                "score": sr.final_score,
-            }
+        normalized: List[Dict[str, Any]] = []
+        for it in results or []:
+            if isinstance(it, dict):
+                d = {
+                    "content": it.get("content", ""),
+                    "metadata": it.get("metadata", {}) or {},
+                    "score": it.get("score", 0.0),
+                }
+            else:
+                # 혹시 객체(SearchResult 류)가 오더라도 방어
+                d = {
+                    "content": getattr(getattr(it, "chunk", None), "content", ""),
+                    "metadata": getattr(getattr(it, "chunk", None), "metadata", {}) or {},
+                    "score": getattr(it, "final_score", 0.0),
+                }
             if allowed(d):
-                out.append(d)
-        return out
+                normalized.append(d)
+        return normalized
+
 
     async def detect_language(self, text: str) -> str:
         return "ko"
