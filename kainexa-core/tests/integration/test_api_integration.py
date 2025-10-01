@@ -16,26 +16,7 @@ from src.core.config import settings
 
 class TestAPIIntegration:
     """API 통합 테스트"""
-    
-    @pytest.fixture
-    async def async_client(self):
-        """비동기 HTTP 클라이언트"""
-        async with AsyncClient(app=app, base_url="http://test") as client:
-            yield client
-    
-    @pytest.fixture
-    def test_client(self):
-        """동기 테스트 클라이언트"""
-        return TestClient(app)
-    
-    @pytest.fixture
-    def auth_headers(self):
-        """인증 헤더"""
-        return {
-            "Authorization": "Bearer test-jwt-token",
-            "X-API-Key": "test-api-key"
-        }
-    
+ 
     @pytest.mark.asyncio
     async def test_health_check(self, async_client):
         """헬스체크 엔드포인트 테스트"""
