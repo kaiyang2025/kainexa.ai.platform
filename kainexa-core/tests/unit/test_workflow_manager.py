@@ -273,7 +273,7 @@ class TestWorkflowManager:
         assert has_cycle == True
     
     @pytest.mark.asyncio
-    async def test_version_management(self, workflow_manager):
+    async def test_version_management(self, workflow_manager, sample_dsl):
         """버전 관리 테스트"""
         workflow_id = "test-workflow-id"
         
