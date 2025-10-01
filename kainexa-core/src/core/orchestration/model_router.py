@@ -26,6 +26,7 @@ except Exception:
      _TORCH_AVAILABLE = False
 
 
+
 logger = structlog.get_logger()
 
 class ModelType(Enum):
@@ -34,7 +35,6 @@ class ModelType(Enum):
     MEDIUM = "medium"        # 중형 모델 (3-7B)
     SMALL = "small"          # 소형 모델 (1-3B)
     SPECIALIZED = "specialized"  # 특화 모델
-
 
 # --- 호환 심볼 (테스트용) ---
 class ModelHealth(Enum):
