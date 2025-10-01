@@ -1,9 +1,9 @@
 # tests/conftest.py
 import os
 import pytest
+import pytest_asyncio               # ← 추가
 from httpx import AsyncClient, ASGITransport
 from starlette.testclient import TestClient
-
 from src.api.main import app
 
 @pytest.fixture(scope="session")
@@ -11,7 +11,7 @@ def anyio_backend():
     # pytest-asyncio/anyio가 asyncio 모드로 동작하도록 고정
     return "asyncio"
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def async_client():
     """
     올바른 형태의 'async fixture':
