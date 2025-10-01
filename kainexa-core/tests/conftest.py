@@ -4,6 +4,7 @@ import pytest
 import pytest_asyncio               # ← 추가
 from httpx import AsyncClient, ASGITransport
 from starlette.testclient import TestClient
+from asgi_lifespan import LifespanManager
 from src.api.main import app
 
 @pytest.fixture(scope="session")
