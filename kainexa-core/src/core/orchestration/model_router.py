@@ -5,9 +5,9 @@ Kainexa Model Router - 완전한 구현
 """
 import asyncio
 import time
-from typing import Dict, List, Any, Optional, Tuple, Union
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any, Dict, List, Optional
 from collections import defaultdict
 import hashlib
 import json
@@ -23,6 +23,13 @@ except Exception:
 
 logger = structlog.get_logger()
 
+class ModelType(Enum):
+    """모델 타입"""
+    LARGE = "large"          # 대형 모델 (10B+)
+    MEDIUM = "medium"        # 중형 모델 (3-7B)
+    SMALL = "small"          # 소형 모델 (1-3B)
+    SPECIALIZED = "specialized"  # 특화 모델
+
 # --- 호환 심볼 (테스트용) ---
 class ModelHealth(Enum):
     HEALTHY = "healthy"
@@ -31,7 +38,7 @@ class ModelHealth(Enum):
 @dataclass
 class ModelProfile:
     name: str
-    type: ModelType
+    type: ModelType   # now defined above
     endpoint: Optional[str] = None
     max_tokens: int = 2048
     cost_per_token: float = 0.0
@@ -70,7 +77,8 @@ class WeightedRandomStrategy:
         import random
         ws = [max(0.0, m.weight) for m in models]
         s = sum(ws) or 1.0
-        r = random.random(); acc = 0.0
+        r = random.random()
+        acc = 0.0
         for m, w in zip(models, ws):
             acc += w/s
             if r <= acc:
@@ -100,14 +108,6 @@ class HealthMonitor:
             async with s.get(url, timeout=2) as r:
                 return ModelHealth.HEALTHY if r.status == 200 else ModelHealth.UNHEALTHY
 
-
-# ========== Enums ==========
-class ModelType(Enum):
-    """모델 타입"""
-    LARGE = "large"          # 대형 모델 (10B+)
-    MEDIUM = "medium"        # 중형 모델 (3-7B)
-    SMALL = "small"          # 소형 모델 (1-3B)
-    SPECIALIZED = "specialized"  # 특화 모델
 
 class RoutingStrategy(Enum):
     """라우팅 전략"""
