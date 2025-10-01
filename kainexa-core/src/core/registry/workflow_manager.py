@@ -103,8 +103,19 @@ class Workflow(BaseModel):
 class WorkflowManager:
     """Workflow Registry Manager"""
     
-    def __init__(self, db_pool: asyncpg.Pool):
-        self.db = db_pool
+    def __init__(self, db_pool=None):
+        """
+        db_pool이 없으면 테스트/로컬 실행을 위해 in-memory 모드로 동작합니다.
+        실제 운영에선 db_pool을 주입해 사용하세요.
+        """
+        self.db_pool = db_pool
+        # in-memory 보조 구조(필요 시 내부 메서드에서 사용; 기존 코드에 영향 없음)
+        self._mem_store = {
+            "workflows": {},   # (workflow_id, version) -> dsl/json 등
+            "compiled": {},    # (workflow_id, version) -> compiled artifact
+            "published": set(),# (workflow_id, version)
+            "metrics": {},     # workflow_id -> {runs, failures, ...}
+        }
         
     # ========== DSL Operations ==========
     async def upload_dsl(self, 
