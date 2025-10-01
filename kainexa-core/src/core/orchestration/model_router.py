@@ -26,7 +26,6 @@ except Exception:
      _TORCH_AVAILABLE = False
 
 
-
 logger = structlog.get_logger()
 
 class ModelType(Enum):
@@ -223,6 +222,9 @@ class ModelRouter:
         self.cache = ModelResponseCache()
         self.metrics = defaultdict(lambda: defaultdict(float))
         self.routing_history = defaultdict(list)
+        # 테스트 호환 기본값/속성
+        self.routing_strategy = RoutingStrategy.ADAPTIVE
+        self.health_monitor = HealthMonitor()
         
         # 요약 모델
         self.summarizer_model = self.config.get('summarizer_model', 'slm-ko-3b')
@@ -813,6 +815,10 @@ class ModelRouter:
         hm = HealthMonitor()
         return await hm.check_health(m)
 
+    def get_historical_performance(self) -> Dict[str, Any]:
+        # 테스트에서 patch.object(model_router, 'get_historical_performance', ...) 대상
+        return {}
+
     # ---- 테스트 호환: route(dict)->ModelProfile ----
     async def _route_compat(self, query: Dict[str, Any]) -> ModelProfile:
         # A/B 우선
@@ -826,11 +832,26 @@ class ModelRouter:
         out = int(query.get("expected_output_tokens", 0))
         needed = ctx + out
         eligible = [m for m in self._compat_models if m.max_tokens >= needed] or self._compat_models
-        strat = str(query.get("routing_strategy", self.config.get("routing_strategy","adaptive"))).upper()
+
+        # 전략 결정 우선순위: query → self.routing_strategy → config → ADAPTIVE
+        if "routing_strategy" in query:
+            rs = query["routing_strategy"]
+            strat_name = rs.name if isinstance(rs, RoutingStrategy) else str(rs)
+        elif isinstance(getattr(self, "routing_strategy", None), RoutingStrategy):
+            strat_name = self.routing_strategy.name
+        else:
+            strat_name = str(self.config.get("routing_strategy", "ADAPTIVE"))
+        strat = strat_name.upper()
+        
         if strat == "COST_OPTIMIZED":
-            exp = int(query.get("expected_tokens", 0))
-            budget = float(query.get("max_budget", float("inf")))
-            ok = [m for m in eligible if (m.cost_per_token*exp) <= budget] or eligible
+            exp = query.get("expected_tokens", 0)
+            budget = query.get("max_budget", float("inf"))
+            try:
+                exp = int(exp)
+                budget = float(budget)
+            except Exception:
+                exp, budget = 0, float("inf")
+            ok = [m for m in eligible if (m.cost_per_token * exp) <= budget] or eligible
             return min(ok, key=lambda m: m.cost_per_token)
         if strat == "LATENCY_OPTIMIZED":
             lats = [(await self.get_model_latency(m), m) for m in eligible]
