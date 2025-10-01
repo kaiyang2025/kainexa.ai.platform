@@ -19,10 +19,11 @@ async def async_client():
     - httpx ASGITransport로 lifespan='on' -> startup/shutdown 실행
     """
     os.environ["TESTING"] = "true"
-    transport = ASGITransport(app=app, lifespan="on")
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        yield client  # <-- 'return' 금지! 반드시 'yield'
-
+    async with LifespanManager(app):
+        transport = ASGITransport(app=app)          # ⬅ lifespan 인자 제거
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            yield client
+            
 @pytest.fixture
 def test_client():
     os.environ["TESTING"] = "true"
