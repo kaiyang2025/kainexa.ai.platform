@@ -9,7 +9,10 @@ from src.core.config import settings
 from src.core.database import engine
 from src.core.redis_client import redis_client
 from src.api.middleware.rate_limit import RateLimitMiddleware
-from src.api.routes import health, conversations, knowledge, analytics
+from src.api.routes import (
+     health, conversations, knowledge, analytics,
+     workflows, auth, users, metrics, ws,
+)
 
 # Configure structured logging
 structlog.configure(
@@ -71,7 +74,11 @@ app.add_middleware(
 )
 
 # Add rate limiting
-app.add_middleware(RateLimitMiddleware)
+app.add_middleware(
+    RateLimitMiddleware,
+    max_requests=3 if getattr(settings, "TESTING", False) else 60,
+    window_seconds=1 if getattr(settings, "TESTING", False) else 60,
+)
 
 # Add Prometheus metrics
 instrumentator = Instrumentator()
@@ -82,3 +89,14 @@ app.include_router(health.router, prefix=settings.API_PREFIX, tags=["health"])
 app.include_router(conversations.router, prefix=settings.API_PREFIX, tags=["conversations"])
 app.include_router(knowledge.router, prefix=settings.API_PREFIX, tags=["knowledge"])
 app.include_router(analytics.router, prefix=settings.API_PREFIX, tags=["analytics"])
+app.include_router(workflows.router, prefix=settings.API_PREFIX, tags=["workflows"])
+app.include_router(auth.router, prefix=settings.API_PREFIX, tags=["auth"])
+app.include_router(users.router, prefix=settings.API_PREFIX, tags=["users"])
+app.include_router(metrics.router, prefix=settings.API_PREFIX, tags=["metrics"])
+# WebSocket은 prefix 없이도 등록 (테스트는 /ws/... 사용)
+app.include_router(ws.router, tags=["ws"])                     # /ws/...
+app.include_router(ws.router, prefix=settings.API_PREFIX, tags=["ws"])  # /api/v1/ws/...
+
+@app.get("/health")
+async def health_alias():
+    return {"status": "ok"}
