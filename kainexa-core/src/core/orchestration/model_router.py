@@ -857,7 +857,24 @@ class ModelRouter:
             lats = [(await self.get_model_latency(m), m) for m in eligible]
             lats.sort(key=lambda x: x[0])
             return lats[0][1]
+        
         # ADAPTIVE (기본)
+        # ADAPTIVE(기본) — 고품질 요구는 과거 성능 우선
+        quality_req = str(query.get("quality_requirement", "")).lower()
+        if quality_req == "high":
+            perf = self.get_historical_performance() or {}
+            # success_rate 우선, 동률이면 모델 크기(LARGE > MEDIUM > SMALL)
+            order = {ModelType.SMALL: 0, ModelType.MEDIUM: 1, ModelType.LARGE: 2}
+            def key_fn(m):
+                sr = 0.0
+                p = perf.get(m.name)
+                if isinstance(p, dict):
+                    sr = float(p.get("success_rate", 0.0) or 0.0)
+                return (sr, order[m.type])
+            return max(eligible, key=key_fn)
+
+        # 품질 지정이 없으면 기존 복합 기준(복잡도 중심)
+        
         score = float(query.get("complexity_score", 0.5))
         if score >= 0.8:
             order = {ModelType.SMALL:0, ModelType.MEDIUM:1, ModelType.LARGE:2}
