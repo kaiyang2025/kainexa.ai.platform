@@ -873,6 +873,23 @@ class ModelRouter:
                 return (sr, order[m.type])
             return max(eligible, key=key_fn)
 
+        # 속도 우선: max_latency가 주어졌다면 해당 SLA 이내 중 최저 지연 선택
+        max_latency_raw = query.get("max_latency", None)
+        try:
+            max_latency = int(max_latency_raw) if max_latency_raw is not None else None
+        except Exception:
+            max_latency = None
+        if max_latency is not None:
+            lat_pairs = [(await self.get_model_latency(m), m) for m in eligible]
+            within = [p for p in lat_pairs if p[0] <= max_latency]
+            if within:
+                within.sort(key=lambda x: x[0])
+                return within[0][1]
+            # SLA 이내가 없으면 전체 중 최저 지연
+            lat_pairs.sort(key=lambda x: x[0])
+            return lat_pairs[0][1]
+
+
         # 품질 지정이 없으면 기존 복합 기준(복잡도 중심)
         
         score = float(query.get("complexity_score", 0.5))
