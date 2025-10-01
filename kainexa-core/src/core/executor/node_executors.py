@@ -12,7 +12,11 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 import structlog
 
-from src.core.executor.execution_context import ExecutionContext, NodeResult
+from src.core.executor.execution_context import (
+    ExecutionContext,
+    NodeResult,
+    NodeStatus,   # ⬅︎ Enum 명시 임포트
+)
 
 logger = structlog.get_logger()
 
@@ -75,6 +79,11 @@ class NodeExecutor(ABC):
                     'round': round
                 }
             }
+            
+            # 간단 헬퍼 (validator에서 'contains(...)' 등을 쓰는 케이스 대비)
+            safe_dict.update({
+                'contains': lambda container, item: str(item) in str(container),
+            })
             safe_dict.update(variables)
             
             return eval(expression, safe_dict)
@@ -134,7 +143,7 @@ class IntentNodeExecutor(NodeExecutor):
         
         return NodeResult(
             node_id=node['id'],
-            status='success',
+            status=NodeStatus.SUCCESS,   # ⬅︎ Enum으로 교체
             outputs=outputs,
             metrics=metrics
         )
@@ -248,7 +257,7 @@ class LLMNodeExecutor(NodeExecutor):
         
         return NodeResult(
             node_id=node['id'],
-            status='success',
+            status=NodeStatus.SUCCESS,   # ⬅︎ Enum으로 교체
             outputs=outputs,
             metrics=metrics
         )
@@ -352,6 +361,10 @@ class APINodeExecutor(NodeExecutor):
                 body = self.render_template(body_template, variables)
             else:
                 body = json.dumps(body_template)
+            # JSON 바디인데 헤더에 Content-Type 없으면 기본 지정
+            if 'Content-Type' not in rendered_headers:
+                rendered_headers['Content-Type'] = 'application/json'
+   
         
         # API 호출 (재시도 로직 포함)
         max_attempts = retry_config.get('max_attempts', 3)
@@ -426,7 +439,7 @@ class APINodeExecutor(NodeExecutor):
         
         return NodeResult(
             node_id=node['id'],
-            status='success',
+            status=NodeStatus.SUCCESS,   # ⬅︎ Enum으로 교체
             outputs=outputs,
             metrics=metrics
         )
@@ -448,8 +461,13 @@ class APINodeExecutor(NodeExecutor):
                     data=body,
                     timeout=aiohttp.ClientTimeout(total=timeout)
                 ) as response:
+                    # 일부 API가 JSON이 아닐 수도 있으므로 폴백 처리
+                    try:
+                        response_data = await response.json(content_type=None)
+                    except Exception:
+                        text_body = await response.text()
+                        response_data = {'_raw': text_body}
                     
-                    response_data = await response.json()
                     response_data['_status_code'] = response.status
                     
                     if response.status >= 400:
@@ -552,7 +570,7 @@ class ConditionNodeExecutor(NodeExecutor):
         
         return NodeResult(
             node_id=node['id'],
-            status='success',
+            status=NodeStatus.SUCCESS,   # ⬅︎ Enum으로 교체
             outputs=outputs,
             metrics=metrics
         )
@@ -589,8 +607,15 @@ class LoopNodeExecutor(NodeExecutor):
             # 병렬 실행
             tasks = []
             for idx, item in enumerate(items):
-                # 각 반복을 위한 독립적인 컨텍스트
-                loop_context = context.clone()
+                # 각 반복을 위한 독립적인 컨텍스트 (clone 없을 때 대비)
+                if hasattr(context, "clone") and callable(getattr(context, "clone")):
+                    loop_context = context.clone()
+                else:
+                    # 최소 폴백: 변수/정책만 얕게 복사한 새 컨텍스트
+                    loop_context = ExecutionContext()
+                    loop_context.variables.update(context.get_all_variables())
+                    loop_context.policies.update(getattr(context, "policies", {}))
+                
                 loop_context.set_variable('loop_index', idx)
                 loop_context.set_variable('loop_item', item)
                 
@@ -632,7 +657,7 @@ class LoopNodeExecutor(NodeExecutor):
         
         return NodeResult(
             node_id=node['id'],
-            status='success',
+            status=NodeStatus.SUCCESS,   # ⬅︎ Enum으로 교체
             outputs=outputs,
             metrics=metrics
         )
