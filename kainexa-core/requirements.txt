@@ -60,5 +60,8 @@ pytest-xdist==3.3.0  # 병렬 테스트
 faker==19.0.0
 aioresponses==0.7.4
 
+# dev
+asgi-lifespan==2.1.0
+
 
 # 추가 package 등록
