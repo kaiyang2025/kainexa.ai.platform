@@ -1,4 +1,4 @@
-# src/orchestration/model_router.py
+# src/core/orchestration/model_router.py
 """
 Kainexa Model Router - 완전한 구현
 대형/경량 모델 라우팅, 요약 경유, 재시도, GPU 리소스 관리
@@ -12,9 +12,14 @@ from collections import defaultdict
 import hashlib
 import json
 import numpy as np
-import torch
 import structlog
 from abc import ABC, abstractmethod
+try:
+     import torch  # optional
+     _TORCH_AVAILABLE = True
+except Exception:
+     torch = None
+     _TORCH_AVAILABLE = False
 
 logger = structlog.get_logger()
 
@@ -712,7 +717,7 @@ class GPUResourceManager:
         """GPU 감지"""
         gpus = []
         
-        if torch.cuda.is_available():
+        if _TORCH_AVAILABLE and torch.cuda.is_available():
             for i in range(torch.cuda.device_count()):
                 props = torch.cuda.get_device_properties(i)
                 total_memory = props.total_memory / (1024**3)  # GB

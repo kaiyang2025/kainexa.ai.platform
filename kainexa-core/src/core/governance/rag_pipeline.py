@@ -1,4 +1,4 @@
-# src/governance/rag_pipeline.py
+# src/core/governance/rag_pipeline.py
 """
 Kainexa RAG Pipeline - 완전한 구현
 벡터 DB 연동, 문서 처리, 임베딩, 검색, 재순위화, 컨텍스트 주입
@@ -27,8 +27,18 @@ from qdrant_client.models import (
 )
 
 # Document processing
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.document_loaders import PyPDFLoader, TextLoader, UnstructuredMarkdownLoader
+ try:
+     from langchain_text_splitters import RecursiveCharacterTextSplitter
+ except ImportError:
+     from langchain.text_splitter import RecursiveCharacterTextSplitter
+ try:
+     from langchain_community.document_loaders import (
+         PyPDFLoader, TextLoader, UnstructuredMarkdownLoader
+     )
+ except ImportError:
+     from langchain.document_loaders import (
+         PyPDFLoader, TextLoader, UnstructuredMarkdownLoader
+     )
 import pandas as pd
 
 logger = structlog.get_logger()

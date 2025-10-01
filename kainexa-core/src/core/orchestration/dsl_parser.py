@@ -1,4 +1,4 @@
-# src/orchestration/dsl_parser.py
+# src/core/orchestration/dsl_parser.py
 import yaml
 import json
 from typing import Dict, List, Any, Optional, Union
