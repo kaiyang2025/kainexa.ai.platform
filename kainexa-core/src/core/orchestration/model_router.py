@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # src/core/orchestration/model_router.py
 """
 Kainexa Model Router - 완전한 구현
@@ -38,7 +40,7 @@ class ModelHealth(Enum):
 @dataclass
 class ModelProfile:
     name: str
-    type: ModelType   # now defined above
+    type: 'ModelType'   # now defined above
     endpoint: Optional[str] = None
     max_tokens: int = 2048
     cost_per_token: float = 0.0
