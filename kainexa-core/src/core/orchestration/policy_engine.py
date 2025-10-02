@@ -24,6 +24,12 @@ class RoutingStrategy(Enum):
     COST_AWARE = "cost_aware"
     FALLBACK = "fallback"
 
+class SearchStrategy(Enum):
+    BM25 = "bm25"              # 전통적 키워드/역색인
+    VECTOR = "vector"          # 임베딩 기반 최근접 탐색
+    HYBRID = "hybrid"          # BM25 + VECTOR 결합
+    RERANK_ONLY = "rerank_only"  # 외부 후보를 받아 재정렬만 수행
+
 # 라우팅 후보(모델/노드/엔드포인트 등) 메타
 @dataclass
 class Candidate:
@@ -991,7 +997,7 @@ __all__ = [
     "RoutingPolicy", "PolicyRouter",
     "FallbackStrategy", "CostAwareStrategy",
     "HighestConfidenceStrategy", "LeastLatencyStrategy",
-    "RoundRobinStrategy",
+    "RoundRobinStrategy","SearchStrategy",
 ]
 
 
