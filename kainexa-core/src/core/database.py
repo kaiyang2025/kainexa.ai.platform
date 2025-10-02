@@ -27,3 +27,11 @@ async def get_db() -> AsyncSession:
             yield session
         finally:
             await session.close()
+
+# Backward-compat: 일부 라우터/테스트가 get_db_pool을 기대
+async def get_db_pool():
+    # get_db()가 Async generator이므로 그대로 위임
+    async for session in get_db():
+        yield session            
+        
+__all__ = ["engine", "AsyncSessionLocal", "Base", "get_db", "get_db_pool"]
