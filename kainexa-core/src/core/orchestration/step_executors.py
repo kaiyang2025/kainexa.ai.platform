@@ -257,9 +257,15 @@ class ResponsePostprocessExecutor(BaseExecutor):
         
         return text
 
+# ---- Backward-compat shims for older tests ---
+class IntentExecutor(IntentClassifyExecutor):
+    """BC shim: old name kept for tests expecting `IntentExecutor`."""
+    pass
+
 # Executor 레지스트리
 EXECUTOR_REGISTRY = {
     'intent_classify': IntentClassifyExecutor,
+    'intent': IntentExecutor,  # ← BC 매핑 추가
     'retrieve_knowledge': RetrieveKnowledgeExecutor,
     'llm_generate': LLMGenerateExecutor,
     'mcp_execution': MCPExecutionExecutor,
@@ -272,3 +278,16 @@ def create_executor(step_type: str) -> BaseExecutor:
     if not executor_class:
         raise ValueError(f"Unknown executor type: {step_type}")
     return executor_class()
+
+__all__ = [
+    "BaseExecutor",
+    "IntentClassifyExecutor",
+    "RetrieveKnowledgeExecutor",
+    "LLMGenerateExecutor",
+    "MCPExecutionExecutor",
+    "ResponsePostprocessExecutor",
+    # BC 심볼
+    "IntentExecutor",
+]
+
+
