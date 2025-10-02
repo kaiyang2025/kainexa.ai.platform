@@ -4,7 +4,7 @@
 """
 from sqlalchemy import Column, String, Boolean, Integer, Float, DateTime, Text, JSON, ForeignKey, ARRAY
 from sqlalchemy.dialects.postgresql import UUID, INET
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 import uuid
