@@ -1,4 +1,4 @@
-# src/models/solar_llm.py
+# src/core/models/solar_llm.py
 """
 Solar-10.7B LLM 추론 엔진 (한국어 전용 모드, 4bit/8bit, OOM 폴백)
 """

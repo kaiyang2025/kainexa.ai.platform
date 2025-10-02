@@ -7,8 +7,8 @@ from datetime import datetime
 import structlog
 
 from src.nlp.korean_nlp import KoreanNLPPipeline
-from src.governance.vector_store import VectorStore
-from src.models.model_factory import ModelFactory
+from src.core.governance.vector_store import VectorStore
+from src.core.models.model_factory import ModelFactory
 
 logger = structlog.get_logger()
 

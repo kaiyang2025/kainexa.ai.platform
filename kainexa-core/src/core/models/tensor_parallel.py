@@ -1,4 +1,4 @@
-# src/models/tensor_parallel.py
+# src/core/models/tensor_parallel.py
 import torch
 import torch.nn as nn
 from torch.nn.parallel import DistributedDataParallel

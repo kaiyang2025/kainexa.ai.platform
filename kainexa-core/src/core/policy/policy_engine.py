@@ -11,7 +11,7 @@ from enum import Enum
 import json
 import structlog
 
-from src.core.executor.execution_context import ExecutionContext, ExecutionStatus
+from src.core.orchestration.execution_context import ExecutionContext, ExecutionStatus
 
 logger = structlog.get_logger()
 

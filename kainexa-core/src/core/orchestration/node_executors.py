@@ -12,7 +12,7 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 import structlog
 
-from src.core.executor.execution_context import (
+from src.core.orchestration.execution_context import (
     ExecutionContext,
     NodeResult,
     NodeStatus,   # ⬅︎ Enum 명시 임포트
