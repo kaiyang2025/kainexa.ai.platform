@@ -1,7 +1,8 @@
 # src/core/registry/workflow_manager.py
+from __future__ import annotations
 """
-Workflow Registry Manager
-Handles workflow DSL upload, versioning, and management
+ Workflow Registry Manager
+ Handles workflow DSL upload, versioning, and management
 """
 import hashlib
 import json
@@ -667,7 +668,7 @@ class WorkflowManager:
             version=version,
         )
 
-    async def compile_workflow(self, request) -> Any:
+    async def compile_workflow_request(self, request) -> Any:
         """
         - self.db.fetch_one(...) → {"dsl_raw": "...", "status": "uploaded"}
         - 컴파일 결과: dict(graph) 를 compiled_graph로 반환
@@ -885,17 +886,17 @@ class WorkflowManager:
         }
     
     # 파일 하단(클래스 밖)에 추가)
-    def get_workflow_manager(db_pool=None) -> WorkflowManager:
-        """
-        테스트 친화 동기 팩토리: 코루틴이 아니라 인스턴스를 그대로 반환.
-        """
-        mgr = WorkflowManager(db_pool=db_pool)
-        # 비동기 초기화가 필요하면 백그라운드 태스크로
-        try:
-            asyncio.create_task(asyncio.sleep(0))
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.create_task(asyncio.sleep(0))
-        return mgr  
+def get_workflow_manager(db_pool=None) -> WorkflowManager:
+    """
+    테스트 친화 동기 팩토리: 코루틴이 아니라 인스턴스를 그대로 반환.
+    """
+    mgr = WorkflowManager(db_pool=db_pool)
+    # 비동기 초기화가 필요하면 백그라운드 태스크로
+    try:
+        asyncio.create_task(asyncio.sleep(0))
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.create_task(asyncio.sleep(0))
+    return mgr  
 
