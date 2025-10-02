@@ -262,14 +262,41 @@ class IntentExecutor(IntentClassifyExecutor):
     """BC shim: old name kept for tests expecting `IntentExecutor`."""
     pass
 
+# ---- Backward-compat shims for older tests ---
+class IntentExecutor(IntentClassifyExecutor):
+    """BC shim: old name kept for tests expecting `IntentExecutor`."""
+    pass
+
+class LLMExecutor(LLMGenerateExecutor):
+    """BC shim: old name kept for tests expecting `LLMExecutor`."""
+    pass
+
+class KnowledgeExecutor(RetrieveKnowledgeExecutor):
+    """BC shim: sometimes used instead of `RetrieveKnowledgeExecutor`."""
+    pass
+
+class ToolExecutor(MCPExecutionExecutor):
+    """BC shim: some tests used `ToolExecutor` for MCP/external tools."""
+    pass
+
+class PostprocessExecutor(ResponsePostprocessExecutor):
+    """BC shim: alias for response post-processing step."""
+    pass
+
+
 # Executor 레지스트리
 EXECUTOR_REGISTRY = {
-    'intent_classify': IntentClassifyExecutor,
-    'intent': IntentExecutor,  # ← BC 매핑 추가
+    'intent_classify': IntentClassifyExecutor,   
     'retrieve_knowledge': RetrieveKnowledgeExecutor,
     'llm_generate': LLMGenerateExecutor,
     'mcp_execution': MCPExecutionExecutor,
-    'response_postprocess': ResponsePostprocessExecutor
+    'response_postprocess': ResponsePostprocessExecutor,
+    # backward-compat step type aliases (old DSL/test names)
+    "intent": IntentExecutor,
+    "llm": LLMExecutor,
+    "knowledge": KnowledgeExecutor,
+    "tool": ToolExecutor,
+    "postprocess": PostprocessExecutor,
 }
 
 def create_executor(step_type: str) -> BaseExecutor:
@@ -286,8 +313,12 @@ __all__ = [
     "LLMGenerateExecutor",
     "MCPExecutionExecutor",
     "ResponsePostprocessExecutor",
-    # BC 심볼
+    # Backward-compat symbols
     "IntentExecutor",
+    "LLMExecutor",
+    "KnowledgeExecutor",
+    "ToolExecutor",
+    "PostprocessExecutor",
 ]
 
 
