@@ -283,6 +283,9 @@ class PostprocessExecutor(ResponsePostprocessExecutor):
     """BC shim: alias for response post-processing step."""
     pass
 
+class APIExecutor(MCPExecutionExecutor):
+    """BC shim: old name kept for tests expecting `APIExecutor` (legacy external/API call executor)."""
+    pass
 
 # Executor 레지스트리
 EXECUTOR_REGISTRY = {
@@ -297,6 +300,9 @@ EXECUTOR_REGISTRY = {
     "knowledge": KnowledgeExecutor,
     "tool": ToolExecutor,
     "postprocess": PostprocessExecutor,
+    "api": APIExecutor,          # ← 추가
+    "http": APIExecutor,         # (일부 테스트/DSL에서 http 라고 표기)
+    "request": APIExecutor,      # (과거 이름 대비)
 }
 
 def create_executor(step_type: str) -> BaseExecutor:
@@ -319,6 +325,7 @@ __all__ = [
     "KnowledgeExecutor",
     "ToolExecutor",
     "PostprocessExecutor",
+     "APIExecutor",
 ]
 
 
