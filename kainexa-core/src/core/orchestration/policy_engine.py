@@ -16,6 +16,25 @@ import json
 
 logger = structlog.get_logger()
 
+# ==== Routing Strategy (for tests & BC) ====
+class RoutingStrategy(Enum):
+    ROUND_ROBIN = "round_robin"
+    LEAST_LATENCY = "least_latency"
+    HIGHEST_CONFIDENCE = "highest_confidence"
+    COST_AWARE = "cost_aware"
+    FALLBACK = "fallback"
+
+# 라우팅 후보(모델/노드/엔드포인트 등) 메타
+@dataclass
+class Candidate:
+    id: str
+    latency_ms: float = 0.0
+    cost_per_1k_tokens: float = 0.0
+    confidence: float = 0.0
+    enabled: bool = True
+    meta: Dict[str, Any] = field(default_factory=dict)
+
+
 # ========== Policy Actions ==========
 class PolicyAction(Enum):
     """정책 액션"""
@@ -949,6 +968,31 @@ class PolicyConfigLoader:
             logger.warning(f"Unsupported policy version: {config['version']}")
         
         return True
+
+
+
+# ---- Backward-compat exports (old names used in tests/DSL) ----
+RoutingPolicy = PolicyEngine
+PolicyRouter = PolicyEngine
+
+FallbackStrategy = RoutingStrategy.FALLBACK
+CostAwareStrategy = RoutingStrategy.COST_AWARE
+HighestConfidenceStrategy = RoutingStrategy.HIGHEST_CONFIDENCE
+LeastLatencyStrategy = RoutingStrategy.LEAST_LATENCY
+RoundRobinStrategy = RoutingStrategy.ROUND_ROBIN
+
+__all__ = [
+    # existing public classes
+    "PolicyAction", "PolicyDecision", "PolicyCondition",
+    "RateLimiter", "CostTracker", "FallbackHandler",
+    "EscalationManager", "PolicyEngine", "PolicyConfigLoader",
+    # new/BC exports
+    "RoutingStrategy", "Candidate",
+    "RoutingPolicy", "PolicyRouter",
+    "FallbackStrategy", "CostAwareStrategy",
+    "HighestConfidenceStrategy", "LeastLatencyStrategy",
+    "RoundRobinStrategy",
+]
 
 
 # ========== 사용 예시 ==========
