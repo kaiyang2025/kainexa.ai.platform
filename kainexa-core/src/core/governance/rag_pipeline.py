@@ -1,4 +1,5 @@
 # src/core/governance/rag_pipeline.py
+from __future__ import annotations
 """
 Kainexa RAG Pipeline - 완전한 구현
 벡터 DB 연동, 문서 처리, 임베딩, 검색, 재순위화, 컨텍스트 주입
@@ -895,11 +896,11 @@ class RAGPipeline:
             await self.vector_store.index_chunks(buf_chunks)
         return ids
     
-    # 파일 하단(클래스 밖)에 추가)
-    def get_rag_pipeline(config: Optional[Dict[str, Any]] = None) -> RAGPipeline:
-        """
-        테스트 친화 동기 팩토리: 코루틴 대신 인스턴스 반환.
-        """
-        return RAGPipeline(config or {})
+# 파일 하단(클래스 밖)에 추가)
+def get_rag_pipeline(config: Optional[Dict[str, Any]] = None) -> RAGPipeline:
+    """
+    테스트 친화 동기 팩토리: 코루틴 대신 인스턴스 반환.
+    """
+    return RAGPipeline(config or {})
 
 
