@@ -262,11 +262,6 @@ class IntentExecutor(IntentClassifyExecutor):
     """BC shim: old name kept for tests expecting `IntentExecutor`."""
     pass
 
-# ---- Backward-compat shims for older tests ---
-class IntentExecutor(IntentClassifyExecutor):
-    """BC shim: old name kept for tests expecting `IntentExecutor`."""
-    pass
-
 class LLMExecutor(LLMGenerateExecutor):
     """BC shim: old name kept for tests expecting `LLMExecutor`."""
     pass
@@ -287,6 +282,36 @@ class APIExecutor(MCPExecutionExecutor):
     """BC shim: old name kept for tests expecting `APIExecutor` (legacy external/API call executor)."""
     pass
 
+# =========================
+# BC: legacy control-flow executors as no-ops
+# =========================
+
+# NoOpExecutor (알 수 없는/제어흐름 구명칭 기본 폴백)
+class NoOpExecutor(BaseExecutor):
+    async def execute(self, context: dict) -> dict:
+        return context
+
+class ConditionExecutor(NoOpExecutor):
+    """BC shim: legacy conditional executor."""
+    pass
+
+class BranchExecutor(NoOpExecutor):
+    """BC shim: legacy branching executor."""
+    pass
+
+class LoopExecutor(NoOpExecutor):
+    """BC shim: legacy loop executor."""
+    pass
+
+class ForEachExecutor(NoOpExecutor):
+    """BC shim: legacy foreach executor."""
+    pass
+
+class ParallelExecutor(NoOpExecutor):
+    """BC shim: legacy parallel/concurrent executor."""
+    pass
+
+
 # Executor 레지스트리
 EXECUTOR_REGISTRY = {
     'intent_classify': IntentClassifyExecutor,   
@@ -303,6 +328,17 @@ EXECUTOR_REGISTRY = {
     "api": APIExecutor,          # ← 추가
     "http": APIExecutor,         # (일부 테스트/DSL에서 http 라고 표기)
     "request": APIExecutor,      # (과거 이름 대비)
+    # control-flow legacy names → No-Op 폴백
+    "condition": ConditionExecutor,
+    "if": ConditionExecutor,
+    "branch": BranchExecutor,
+    "switch": BranchExecutor,
+    "loop": LoopExecutor,
+    "foreach": ForEachExecutor,
+    "for_each": ForEachExecutor,
+    "parallel": ParallelExecutor,
+    "concurrent": ParallelExecutor,
+    
 }
 
 def create_executor(step_type: str) -> BaseExecutor:
@@ -325,7 +361,14 @@ __all__ = [
     "KnowledgeExecutor",
     "ToolExecutor",
     "PostprocessExecutor",
-     "APIExecutor",
+    "APIExecutor",
+    # Control-flow BC symbols
+    "NoOpExecutor",
+    "ConditionExecutor",
+    "BranchExecutor",
+    "LoopExecutor",
+    "ForEachExecutor",
+    "ParallelExecutor",
 ]
 
 
