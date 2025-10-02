@@ -21,18 +21,18 @@ import numpy as np
 from src.core.registry.workflow_manager import (
     WorkflowManager, WorkflowDSL, WorkflowStatus, Environment
 )
-from src.orchestration.graph_executor import GraphExecutor, GraphConfig
-from src.orchestration.execution_context import ExecutionContext
-from src.orchestration.step_executors import (
+from src.core.orchestration.graph_executor import GraphExecutor, GraphConfig
+from src.core.orchestration.execution_context import ExecutionContext
+from src.core.orchestration.step_executors import (
     IntentExecutor, LLMExecutor, APIExecutor, 
     ConditionExecutor, LoopExecutor
 )
-from src.orchestration.policy_engine import (
+from src.core.orchestration.policy_engine import (
     PolicyEngine, PolicyAction, PolicyDecision,
     RoutingStrategy, SearchStrategy
 )
-from src.orchestration.model_router import ModelRouter, RoutingRequest
-from src.governance.rag_pipeline import (
+from src.core.orchestration.model_router import ModelRouter, RoutingRequest
+from src.core.governance.rag_pipeline import (
     RAGPipeline, DocumentType, ChunkingStrategy
 )
 from src.api.routes.workflow_routes import router as workflow_router
