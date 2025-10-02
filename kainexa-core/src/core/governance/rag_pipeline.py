@@ -847,3 +847,59 @@ class RAGPipeline:
                 selected.append(d)
                 used += n
         return selected
+    
+    # RAGPipeline 클래스 내부에 추가
+    async def ingest(self, file_path: str, doc_type: DocumentType, metadata: Optional[Dict[str, Any]] = None) -> str:
+        """
+        단일 문서 수집:
+        - DocumentProcessor로 청킹
+        - VectorStore에 인덱싱
+        - 반환: document_id(문서 해시)
+        """
+        doc = await self.processor.process_document(
+            file_path=file_path,
+            doc_type=doc_type,
+            chunking_strategy=ChunkingStrategy.FIXED_SIZE,
+            metadata=metadata or {},
+        )
+        # 인덱싱
+        await self.vector_store.index_chunks(doc.chunks)
+        return doc.id
+
+    async def batch_ingest(self,
+                        documents: List[Tuple[str, DocumentType, Optional[Dict[str, Any]]]],
+                        chunking: ChunkingStrategy = ChunkingStrategy.FIXED_SIZE,
+                        batch_size: int = 8) -> List[str]:
+        """
+        배치 문서 수집:
+        - [(file_path, doc_type, metadata), ...] 형태
+        - 청킹 전략은 인자로 받되, Processor 초기화와 충돌 없이 동작
+        """
+        ids: List[str] = []
+        buf_chunks: List[DocumentChunk] = []
+        for fp, dt, md in documents:
+            doc = await self.processor.process_document(
+                file_path=fp,
+                doc_type=dt,
+                chunking_strategy=chunking,
+                metadata=md or {},
+            )
+            ids.append(doc.id)
+            buf_chunks.extend(doc.chunks)
+
+            if len(buf_chunks) >= batch_size:
+                await self.vector_store.index_chunks(buf_chunks)
+                buf_chunks = []
+
+        if buf_chunks:
+            await self.vector_store.index_chunks(buf_chunks)
+        return ids
+    
+    # 파일 하단(클래스 밖)에 추가)
+    def get_rag_pipeline(config: Optional[Dict[str, Any]] = None) -> RAGPipeline:
+        """
+        테스트 친화 동기 팩토리: 코루틴 대신 인스턴스 반환.
+        """
+        return RAGPipeline(config or {})
+
+

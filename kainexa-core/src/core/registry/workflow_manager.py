@@ -842,3 +842,60 @@ class WorkflowManager:
         if raw:
             out["dsl"] = json.loads(raw)
         return out    
+    
+    
+    # WorkflowManager 클래스 내부에 추가
+    async def create_workflow(self, *, namespace: str, name: str, dsl: Dict[str, Any], created_by: str) -> Dict[str, Any]:
+        """
+        테스트/로컬 친화 워크플로 생성:
+        - DB 풀 있으면 DB 경로로, 없으면 in-memory로 저장
+        - 반환: {id, namespace, name, version, status}
+        """
+        wf_id = uuid4()
+        version = dsl.get("version") or dsl.get("workflow", {}).get("version") or "1.0.0"
+
+        if getattr(self, "db", None) and hasattr(self.db, "acquire"):
+            async with self.db.acquire() as conn:
+                row = await conn.fetchrow("""
+                    INSERT INTO workflows (id, namespace, name, description, created_by)
+                    VALUES ($1, $2, $3, $4, $5)
+                    RETURNING *
+                """, wf_id, namespace, name, (dsl.get("workflow") or {}).get("metadata", {}).get("description"), created_by)
+                # 버전 레코드
+                await conn.execute("""
+                    INSERT INTO workflow_versions (workflow_id, version, dsl_raw, dsl_format, checksums, created_by, status)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                """, row["id"], version, json.dumps(dsl), "json", json.dumps({}), created_by, WorkflowStatus.UPLOADED.value)
+        else:
+            # in-memory 경로
+            self._mem_store["workflows"][(str(wf_id), version)] = {
+                "namespace": namespace,
+                "name": name,
+                "dsl": dsl,
+                "status": "uploaded",
+                "created_by": created_by,
+            }
+
+        return {
+            "id": str(wf_id),
+            "namespace": namespace,
+            "name": name,
+            "version": version,
+            "status": "created",
+        }
+    
+    # 파일 하단(클래스 밖)에 추가)
+    def get_workflow_manager(db_pool=None) -> WorkflowManager:
+        """
+        테스트 친화 동기 팩토리: 코루틴이 아니라 인스턴스를 그대로 반환.
+        """
+        mgr = WorkflowManager(db_pool=db_pool)
+        # 비동기 초기화가 필요하면 백그라운드 태스크로
+        try:
+            asyncio.create_task(asyncio.sleep(0))
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.create_task(asyncio.sleep(0))
+        return mgr  
+
