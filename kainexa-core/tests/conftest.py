@@ -7,6 +7,8 @@ from starlette.testclient import TestClient
 from asgi_lifespan import LifespanManager
 from src.api.main import app
 
+os.environ.setdefault("METRICS_BACKEND", "none")
+
 @pytest.fixture(scope="session")
 def anyio_backend():
     # pytest-asyncio/anyio가 asyncio 모드로 동작하도록 고정

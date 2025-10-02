@@ -63,5 +63,7 @@ aioresponses==0.7.4
 # dev
 asgi-lifespan==2.1.0
 
+clickhouse-driver==0.2.9
+python-multipart==0.0.9
 
 # 추가 package 등록
