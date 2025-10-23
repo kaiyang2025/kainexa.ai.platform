@@ -8,11 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field
 import traceback
 import logging
-
 from src.core.database import get_db
 from src.core.session_manager import SessionManager, ConversationManager
 from src.core.models.solar_llm import SolarLLM
-from src.core.governance.rag_pipeline import RAGPipeline, DocumentMetadata, AccessLevel
+from src.core.governance.rag_pipeline import RAGPipeline,DocumentMetadata, AccessLevel, get_rag_pipeline
+import os
 from src.scenarios.production_monitoring import ProductionMonitoringAgent
 from src.scenarios.predictive_maintenance import PredictiveMaintenanceAgent
 from src.scenarios.quality_control import QualityControlAgent
@@ -39,7 +39,14 @@ class DocumentUploadResponse(BaseModel):
 
 # 전역 인스턴스
 llm = SolarLLM()
-rag = RAGPipeline()
+RAG_CFG = {
+    "qdrant_host": os.getenv("QDRANT_HOST", "localhost"),
+    "qdrant_port": int(os.getenv("QDRANT_PORT", "6333")),
+    "collection_name": os.getenv("QDRANT_COLLECTION", "kainexa_default"),
+}
+def get_rag_dep() -> RAGPipeline:
+    # 필요 시 새 인스턴스 반환(간단), pool/reuse가 필요하면 app.state 등에 캐시
+    return get_rag_pipeline(RAG_CFG)
 
 @router.post("/login")
 async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
@@ -67,11 +74,18 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
         "session": session_data
     }
 
+
+@router.post("/rag/search")
+async def rag_search(req: RagSearchRequest):
+    results = await rag.search(req.query, k=req.top_k)
+    return {"results": results}
+
 @router.post("/chat")
 async def chat(
     request_data: ChatRequest,
     request: Request,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db), 
+    rag: RAGPipeline = Depends(get_rag_dep),
 ):
     """채팅 엔드포인트 - 한국어 전용"""
     try:
@@ -112,10 +126,10 @@ async def chat(
         # RAG 검색 (옵션)
         rag_context = ""
         try:
-            rag_results = await rag.retrieve(
+            # 접근제어 포함 검색으로 변경
+            rag_results = await rag.search_with_access_control(
                 query=request_data.message,
-                k=3,
-                user_access_level=AccessLevel.INTERNAL
+                user_ctx={"access_level": AccessLevel.INTERNAL.value}
             )
             if rag_results:
                 rag_context = "\n".join([
@@ -162,12 +176,12 @@ async def chat(
             
             # 응답이 비어있으면 기본 응답
             if not response_text.strip():
-                response_text = self._get_fallback_response(request_data.message)
+                response_text = _get_fallback_response(request_data.message)
                 
         except Exception as e:
             logger.error(f"LLM generation failed: {e}")
-            # LLM 실패시 템플릿 응답
-            response_text = self._get_fallback_response(request_data.message)
+            # LLM 실패시 템플릿 응답        
+            response_text = _get_fallback_response(request_data.message)
         
         # 어시스턴트 메시지 저장
         await conv_manager.add_message(
@@ -254,7 +268,8 @@ def _get_fallback_response(query: str) -> str:
 @router.post("/documents/upload")
 async def upload_document(
     file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    rag: RAGPipeline = Depends(get_rag_dep),
 ):
     """문서 업로드"""
     content = await file.read()
@@ -270,7 +285,12 @@ async def upload_document(
         language="ko"
     )
     
+    # RAGPipeline에 add_document가 있는 경우:
     success = await rag.add_document(text_content, metadata)
+    # 만약 add_document가 없다면, 아래 중 하나로 교체하세요.
+    # success = await rag.ingest_text(text_content, metadata)
+    # success = await rag.ingest(file_path, DocumentType.TEXT, metadata)  # 파일 경로 기반 구현일 때
+    
     
     if not success:
         raise HTTPException(status_code=500, detail="Failed to process document")
@@ -286,13 +306,13 @@ async def upload_document(
 async def search_documents(
     query: str,
     limit: int = 5,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    rag: RAGPipeline = Depends(get_rag_dep),
 ):
     """문서 검색"""
-    results = await rag.retrieve(
+    results = await rag.search_with_access_control(
         query=query,
-        k=limit,
-        user_access_level=AccessLevel.INTERNAL
+        user_ctx={"access_level": AccessLevel.INTERNAL.value}
     )
     
     return {
@@ -305,7 +325,8 @@ async def search_documents(
 async def run_production_scenario(
     query: str = "생산 현황 보고해줘",
     request: Request = None,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    rag: RAGPipeline = Depends(get_rag_dep),
 ):
     """생산 모니터링 시나리오"""
     try:
@@ -321,7 +342,8 @@ async def run_production_scenario(
 async def run_maintenance_scenario(
     equipment_id: str = "CNC_007",
     request: Request = None,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    rag: RAGPipeline = Depends(get_rag_dep),
 ):
     """예측적 유지보수 시나리오"""
     try:
@@ -336,7 +358,8 @@ async def run_maintenance_scenario(
 @router.post("/scenarios/quality")
 async def run_quality_scenario(
     request: Request = None,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    rag: RAGPipeline = Depends(get_rag_dep),
 ):
     """품질 관리 시나리오"""
     try:
@@ -375,7 +398,7 @@ async def get_conversation_history(
     }
 
 @router.get("/health/full")
-async def full_health_check():
+async def full_health_check(rag: RAGPipeline = Depends(get_rag_dep)):
     """전체 시스템 헬스체크"""
     health_status = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
