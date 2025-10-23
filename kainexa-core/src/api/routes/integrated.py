@@ -21,7 +21,6 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 from src.core.models.orm_models import Conversation  # 실제 위치에 맞게 임포트
 
-
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1", tags=["integrated"])
 
@@ -55,7 +54,7 @@ def _parse_uuid_maybe(value: str | None) -> UUID | None:
     except Exception:
         return None
 
-async def _ensure_conversation(db: AsyncSession, user_email: str, incoming_id: str | None) -> UUID:
+async def _ensure_conversation(db: AsyncSession, incoming_id: str | None) -> UUID:
     """
     - 유효한 UUID가 오면: 존재 여부 확인 후 없으면 생성
     - UUID가 아니면: 새 UUID 발급 후 생성
@@ -68,15 +67,25 @@ async def _ensure_conversation(db: AsyncSession, user_email: str, incoming_id: s
         conv = row.scalar_one_or_none()
         if conv:
             return cid
-        # 없으면 생성
-        conv = Conversation(id=cid, user_email=user_email)
+        # 없으면 생성        
+        conv = Conversation(
+            id=cid,
+            title=f"대화 {datetime.now():%Y-%m-%d %H:%M}",
+            context={},
+            status="active",
+        )
         db.add(conv)
         await db.flush()
         return cid
 
     # 유효하지 않으면 새로 발급/생성
-    new_id = uuid4()
-    conv = Conversation(id=new_id, user_email=user_email)
+    new_id = uuid4()    
+    conv = Conversation(
+        id=new_id,
+        title=f"대화 {datetime.now():%Y-%m-%d %H:%M}",
+        context={},
+        status="active",
+    )
     db.add(conv)
     await db.flush()
     return new_id
@@ -133,15 +142,14 @@ async def chat(
 
         # 대화 ID 정규화(항상 UUID가 되도록 보장하고, 없으면 생성)
         conversation_uuid = await _ensure_conversation(
-            db=db, 
-            user_email=user_email, 
-            incoming_id=request_data.conversation_id
+            db=db,
+            incoming_id=request_data.conversation_id,
         )
         conversation_id = str(conversation_uuid)  # 응답/로그 용 문자열
         
         # 사용자 메시지 저장
         await conv_manager.add_message(
-            conversation_id=conversation_uuid,
+            conversation_id=conversation_uuid,  # UUID 객체 O
             role="user",
             content=request_data.message
         )
