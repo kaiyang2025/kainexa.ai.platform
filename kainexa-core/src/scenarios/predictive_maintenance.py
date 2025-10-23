@@ -9,16 +9,17 @@ from datetime import datetime, timedelta
 import numpy as np
 from typing import Dict, Any, List, Optional
 
-from src.models.solar_llm import SolarLLM
-from src.governance.rag_pipeline import RAGGovernance
+# 무거운 의존성은 요청 시점에만 import (부팅 속도/안정성)
+# LLM은 사용 시점에 lazy import 합니다. RAG도 core 네임스페이스로 수정.
+from src.core.governance.rag_pipeline import RAGPipeline, AccessLevel
 
 class PredictiveMaintenanceAgent:
     """예측적 유지보수 AI 에이전트"""
 
-    def __init__(self, rag: Optional[RAGGovernance] = None, llm: Optional[SolarLLM] = None):
-        # rag는 현재 사용 예정/확장용으로 보관만 합니다.
-        self.rag = rag
-        self.llm = llm or SolarLLM()
+    def __init__(self, rag: Optional[RAGPipeline] = None, llm=None):
+        # RAG/LLM은 주입 가능. LLM은 lazy import로 지연 로드.
+        self.rag = rag or RAGPipeline()
+        self.llm = llm
         self.equipment_history = self._load_equipment_history()
         
     def _load_equipment_history(self) -> Dict:
@@ -61,8 +62,18 @@ class PredictiveMaintenanceAgent:
         use_llm = os.getenv("KXN_USE_LLM_MAINT", os.getenv("KXN_USE_LLM_REPORT", "0")) == "1"
         if not use_llm:
             response = self._render_report_korean(equipment_id, equipment, sensors, analysis, failure_probability)
-        else:
+        else:            
+            # 필요할 때만 LLM 로드 (torch/transformers 미설치 환경 보호)
+            if self.llm is None:
+                try:
+                    from src.core.models.solar_llm import SolarLLM
+                    self.llm = SolarLLM()
+                except Exception as e:
+                    # LLM 가용하지 않으면 템플릿으로 폴백
+                    response = self._render_report_korean(equipment_id, equipment, sensors, analysis, failure_probability)
+                    return self._build_result(equipment_id, analysis, failure_probability, response)
             self.llm.load()
+            
             prompt = f"""
 설비 ID: {equipment_id}
 운영 시간: {equipment['operating_hours']}시간
@@ -72,7 +83,7 @@ class PredictiveMaintenanceAgent:
 - 진동: {analysis['vibration']['trend']} (현재: {sensors['vibration'][-1]})
 - 온도: {analysis['temperature']['trend']} (현재: {sensors['temperature'][-1]}°C)
 - 전류: {analysis['current']['trend']} (현재: {sensors['current'][-1]}A)
-- 소음: {analysis['noise_db']['trend'] if 'trend' in analysis['noise_db'] else analysis['noise']['trend']} (현재: {sensors['noise_db'][-1]}dB)
+- 소음: {analysis['noise_db']['trend']} (현재: {sensors['noise_db'][-1]}dB)
 
 고장 확률: {failure_probability}%
 
@@ -112,6 +123,24 @@ class PredictiveMaintenanceAgent:
             "duration_ms": duration_ms
         }
     
+    
+    def _build_result(self, equipment_id: str, analysis: Dict[str, Any],
+                      failure_probability: float, response: str) -> Dict[str, Any]:
+        return {
+            "equipment_id": equipment_id,
+            "timestamp": datetime.now().isoformat(),
+            "sensor_analysis": analysis,
+            "failure_probability": failure_probability,
+            "predicted_failure_time": self._estimate_failure_time(failure_probability),
+            "ai_analysis": self._normalize_spacing(response),
+            "maintenance_schedule": self._suggest_maintenance_schedule(
+                failure_probability, self.equipment_history[equipment_id]['last_maintenance']
+            ),
+            "estimated_downtime": self._estimate_downtime(analysis),
+            "spare_parts": self._recommend_spare_parts(analysis),
+            "duration_ms": 0
+        }
+        
     def _analyze_sensor_trends(self, sensors: Dict) -> Dict:
         """센서 트렌드 분석"""
         analysis = {}
