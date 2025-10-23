@@ -4,6 +4,7 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
+from time import perf_counter
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field
 import traceback
@@ -61,6 +62,8 @@ async def _ensure_conversation(db: AsyncSession, incoming_id: str | None) -> UUI
     항상 존재하는 Conversation의 UUID를 반환
     """
     cid = _parse_uuid_maybe(incoming_id)
+    if not cid:
+        raise HTTPException(400, "conversation_id must be a valid UUID")
     if cid:
         # 존재 여부 확인
         row = await db.execute(select(Conversation).where(Conversation.id == cid))
@@ -128,8 +131,12 @@ async def chat(
     db: AsyncSession = Depends(get_db), 
     rag: RAGPipeline = Depends(get_rag_dep),
 ):
+        
     """채팅 엔드포인트 - 한국어 전용"""
     try:
+        
+        t0 = perf_counter()
+        
         # 사용자 식별
         user_email = (
             request.headers.get("X-User-Email") or 
@@ -147,29 +154,38 @@ async def chat(
         )
         conversation_id = str(conversation_uuid)  # 응답/로그 용 문자열
         
+                
         # 사용자 메시지 저장
         await conv_manager.add_message(
             conversation_id=conversation_uuid,  # UUID 객체 O
             role="user",
             content=request_data.message
         )
-        
-        # RAG 검색 (옵션)
+                   
+            
+        # RAG 검색 (옵션) ─ 결과를 sources로 풍부화
         rag_context = ""
+        rag_results = []
         try:
-            # 접근제어 포함 검색으로 변경
             rag_results = await rag.search_with_access_control(
                 query=request_data.message,
-                user_ctx={"access_level": AccessLevel.INTERNAL.value}
+                user_ctx={"access_level": AccessLevel.INTERNAL.value},
             )
             if rag_results:
-                rag_context = "\n".join([
-                    r.get('text', '')[:200] 
-                    for r in rag_results[:2]
-                ])
+                rag_context = "\n".join([r.get("text", "")[:200] for r in rag_results[:2]])
         except Exception as e:
-            logger.warning(f"RAG retrieval failed: {e}")
+            logger.warning("RAG search failed", exc_info=e)
             rag_results = []
+
+        sources = [
+            {
+                "id": r.get("id"),
+                "score": r.get("score"),
+                "title": (r.get("metadata") or {}).get("title"),
+                "source": (r.get("metadata") or {}).get("source"),
+            }
+            for r in rag_results or []
+        ]     
         
         # LLM 응답 생성
         try:
@@ -200,19 +216,28 @@ async def chat(
             
             response_text = _llm.generate(
                 prompt,
-                max_new_tokens=400,
+                #max_new_tokens=400,
+                max_new_tokens = 256 if len(request_data.message) < 100 else 512,
                 temperature=0.3,
                 do_sample=False  # 그리디
             )
             
-            # 응답이 비어있으면 기본 응답
-            if not response_text.strip():
+            # 응답이 비어있으면 기본 응답                
+            if not response_text or not response_text.strip():
                 response_text = _get_fallback_response(request_data.message)
-                
+
+            # ① LLM 응답 후처리(이름 치환)
+            response_text = _postprocess(response_text, user_email)
+            
         except Exception as e:
-            logger.error(f"LLM generation failed: {e}")
-            # LLM 실패시 템플릿 응답        
-            response_text = _get_fallback_response(request_data.message)
+            # ④ 예외별 폴백 문구 개선
+            msg = str(e)
+            if "qdrant" in msg.lower():
+                logger.error("LLM generation failed (downstream RAG issue)", exc_info=e)
+                response_text = "지식검색 서비스에 일시적 문제가 있어요. 대화 자체는 계속 가능합니다."
+            else:
+                logger.error("LLM generation failed", exc_info=e)
+                response_text = "생성 엔진이 잠시 응답이 없습니다. 간단 요약으로 답변드릴게요."
         
         # 어시스턴트 메시지 저장
         await conv_manager.add_message(
@@ -221,11 +246,19 @@ async def chat(
             content=response_text
         )
         
+        response_text = _postprocess(response_text, user_email)
+               
+        duration_ms = int((perf_counter() - t0) * 1000)
         return {
-            "conversation_id": conversation_uuid,
+            "conversation_id": conversation_id,  # 문자열로 응답
             "response": response_text,
-            "sources": [r.get("source", "") for r in (rag_results or [])],
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "sources": sources,                  # ② 풍부화된 소스
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "meta": {                            # ⑤ 메타 정보
+                "model": getattr(llm, "model_name", None),
+                "latency_ms": duration_ms,
+                "rag_used": bool(rag_results),
+            },
         }
         
     except HTTPException:
@@ -239,6 +272,10 @@ async def chat(
             "sources": [],
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
+        
+def _postprocess(text: str, user_email: str | None = None) -> str:
+    name = (user_email or "").split("@")[0] or "고객님"
+    return (text or "").replace("#@이름#", name)
 
 def _get_fallback_response(query: str) -> str:
     """LLM 실패시 폴백 응답"""
