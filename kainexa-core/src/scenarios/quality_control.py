@@ -10,15 +10,15 @@ import numpy as np
 from typing import Dict, Any, List, Optional
 import random
 
-from src.models.solar_llm import SolarLLM
-from src.governance.rag_pipeline import RAGGovernance
+# 경로 수정: core 네임스페이스 사용, LLM은 요청 시점에 lazy import
+from src.core.governance.rag_pipeline import RAGPipeline, AccessLevel
 
 class QualityControlAgent:
     """품질 관리 AI 에이전트"""
-
-    def __init__(self, rag: Optional[RAGGovernance] = None, llm: Optional[SolarLLM] = None):
-        self.rag = rag
-        self.llm = llm or SolarLLM()
+        
+    def __init__(self, rag: Optional[RAGPipeline] = None, llm=None):
+        self.rag = rag or RAGPipeline()
+        self.llm = llm
         self.quality_data = self._generate_quality_data()
         
     def _generate_quality_data(self) -> Dict:
@@ -80,8 +80,21 @@ class QualityControlAgent:
         use_llm = os.getenv("KXN_USE_LLM_QUALITY", os.getenv("KXN_USE_LLM_REPORT", "0")) == "1"
         if not use_llm:
             response = self._render_report_korean(data, trends, patterns, root_causes)
-        else:
+        else:            
+            # 필요할 때만 LLM 로드(토치/트랜스포머 미설치 환경 보호)
+            if self.llm is None:
+                try:
+                    from src.core.models.solar_llm import SolarLLM
+                    self.llm = SolarLLM()
+                except Exception as e:
+                    # LLM 가용하지 않으면 템플릿 보고서로 폴백
+                    response = self._render_report_korean(data, trends, patterns, root_causes)
+                    return {
+                        "timestamp": datetime.now().isoformat(),
+                        "period": data['period'],
+                        "summary": {"defect_rate": data['metrics']['defect_rate'], "cpk": data['metrics']['cpk'], "trend": trends['overall']}, "patterns": patterns, "root_causes": root_causes, "ai_analysis": self._normalize_spacing(response), "improvement_plan": self._create_improvement_plan(data, patterns, root_causes), "roi_estimation": self._estimate_roi(data), "duration_ms": int((perf_counter() - t0) * 1000)}
             self.llm.load()
+            
             prompt = f"""
 품질 관리 주간 보고서 (한국어 전용)
 
