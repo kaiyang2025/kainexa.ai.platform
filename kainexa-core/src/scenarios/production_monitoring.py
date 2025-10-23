@@ -8,17 +8,17 @@ from typing import Dict, Any, List, Optional
 import os, re, json
 import random
 
-from src.models.solar_llm import SolarLLM
-from src.governance.rag_pipeline import RAGGovernance, AccessLevel
+from src.core.governance.rag_pipeline import RAGPipeline, AccessLevel
 
 
 class ProductionMonitoringAgent:
     """생산 모니터링 AI 에이전트"""
 
-    def __init__(self, rag: Optional[RAGGovernance] = None, llm: Optional[SolarLLM] = None):
-        # 라우트에서 주입되면 사용, 아니면 내부 생성(하위호환)
-        self.llm = llm or SolarLLM()
-        self.rag = rag or RAGGovernance()
+    def __init__(self, rag: Optional[RAGPipeline] = None, llm=None):
+        # 라우트에서 주입되면 사용, 아니면 내부 생성
+        # SolarLLM 은 torch/transformers 의존 → 요청 시 지연 임포트 (아래 analyze_production에서)
+        self.llm = llm
+        self.rag = rag or RAGPipeline()
         self.production_data = self._simulate_production_data()
   
         
@@ -77,21 +77,29 @@ class ProductionMonitoringAgent:
         rag_context = ""
         if issues:
             search_query = " ".join([issue['type'] for issue in issues])
-            rag_results = await self.rag.retrieve(
+            # RAGPipeline은 retrieve가 아니라 search/search_with_access_control 를 제공합니다.
+            # 접근제어까지 고려하려면 다음처럼 호출하세요:
+            rag_results = await self.rag.search_with_access_control(
                 query=search_query,
-                k=3,
-                user_access_level=AccessLevel.INTERNAL
+                user_ctx={"access_level": AccessLevel.INTERNAL.value},
             )
-            
+                        
             if rag_results:
                 rag_context = "\n".join([r['text'][:200] for r in rag_results])
         
         # 4. LLM으로 보고서 생성
-        self.llm.load()
+        # 지연 임포트: 필요할 때만 로드
+        if self.llm is None:
+            try:
+                from src.core.models.solar_llm import SolarLLM
+                self.llm = SolarLLM()
+            except Exception as e:
+                # LLM 백엔드가 없어도 템플릿 보고서로 동작
+                self.llm = None
         
         # ── 빠른 경로(기본): LLM 없이 한국어 보고서 템플릿 생성 ─────────────────
         use_llm = os.getenv("KXN_USE_LLM_REPORT", "0") == "1"
-        if not use_llm:
+        if not use_llm or self.llm is None:
             response = self._render_report_korean(data, issues)
         else:
             # ── 느리지만 유연한 경로: LLM 사용(그리디 + 한국어 강제) ───────────────
