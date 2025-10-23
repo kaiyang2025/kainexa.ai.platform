@@ -16,6 +16,8 @@ import os
 from src.scenarios.production_monitoring import ProductionMonitoringAgent
 from src.scenarios.predictive_maintenance import PredictiveMaintenanceAgent
 from src.scenarios.quality_control import QualityControlAgent
+from src.api.schemas.schemas import ChatRequest, RagSearchRequest
+
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1", tags=["integrated"])
@@ -24,12 +26,6 @@ router = APIRouter(prefix="/api/v1", tags=["integrated"])
 class LoginRequest(BaseModel):
     email: str
     password: str
-
-class ChatRequest(BaseModel):
-    message: str
-    conversation_id: Optional[str] = None
-    context: Dict[str, Any] = Field(default_factory=dict)
-    user_email: Optional[str] = None
 
 class DocumentUploadResponse(BaseModel):
     document_id: str

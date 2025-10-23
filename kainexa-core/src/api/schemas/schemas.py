@@ -17,7 +17,7 @@ class ChatRequest(BaseModel):
     session_id: Optional[str] = Field(None, description="세션 ID")
     context: Optional[Dict[str, Any]] = Field(default_factory=dict)
     stream: bool = Field(False, description="스트리밍 여부")
-
+    
 class ChatResponse(BaseModel):
     response: str = Field(..., description="AI 응답")
     session_id: str
@@ -36,3 +36,8 @@ class AuthResponse(BaseModel):
     token_type: str = "bearer"
     user_id: str
     role: Role
+    
+    
+class RagSearchRequest(BaseModel):
+    query: str
+    top_k: int = 5
