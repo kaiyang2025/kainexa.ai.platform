@@ -12,7 +12,7 @@ import logging
 from src.core.database import get_db
 from src.core.session_manager import SessionManager, ConversationManager
 from src.core.models.solar_llm import SolarLLM
-from src.core.governance.rag_pipeline import RAGGovernance, DocumentMetadata, AccessLevel
+from src.core.governance.rag_pipeline import RAGPipeline, DocumentMetadata, AccessLevel
 from src.scenarios.production_monitoring import ProductionMonitoringAgent
 from src.scenarios.predictive_maintenance import PredictiveMaintenanceAgent
 from src.scenarios.quality_control import QualityControlAgent
@@ -39,7 +39,7 @@ class DocumentUploadResponse(BaseModel):
 
 # 전역 인스턴스
 llm = SolarLLM()
-rag = RAGGovernance()
+rag = RAGPipeline()
 
 @router.post("/login")
 async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):

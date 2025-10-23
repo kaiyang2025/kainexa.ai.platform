@@ -769,10 +769,10 @@ class RAGPipeline:
     async def get_embedding(self, text: str) -> List[float]:
         dim = self.config.get("embedding_model", {}).get("dimension", 8)
         return [0.0] * dim
-
+   
     async def search(self, query: str, k: int = 10) -> List[Dict[str, Any]]:
-        # 테스트에서 vector_store.search를 list[dict]로 목킹하므로 그대로 위임
-        return await self.vector_store.search(query, k=k)
+        sq = SearchQuery(text=query, top_k=k)
+        return await self.vector_store.search(sq)
 
     async def semantic_search(self, query: str) -> List[Dict[str, Any]]:
         return []
@@ -786,7 +786,7 @@ class RAGPipeline:
         return (s or []) + (k or [])
 
     async def search_with_access_control(self, query: str, user_context: Dict[str, Any]) -> List[Dict[str, Any]]:
-        results = await self.vector_store.search(query, k=10)
+        results = await self.vector_store.search(SearchQuery(text=query, top_k=10))
         level = user_context.get("access_level", AccessLevel.INTERNAL)
 
         def allowed(doc: Dict[str, Any]) -> bool:
