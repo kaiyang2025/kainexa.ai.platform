@@ -11,8 +11,8 @@ import logging
 
 from src.core.database import get_db
 from src.core.session_manager import SessionManager, ConversationManager
-from src.models.solar_llm import SolarLLM
-from src.governance.rag_pipeline import RAGGovernance, DocumentMetadata, AccessLevel
+from src.core.models.solar_llm import SolarLLM
+from src.core.governance.rag_pipeline import RAGGovernance, DocumentMetadata, AccessLevel
 from src.scenarios.production_monitoring import ProductionMonitoringAgent
 from src.scenarios.predictive_maintenance import PredictiveMaintenanceAgent
 from src.scenarios.quality_control import QualityControlAgent
