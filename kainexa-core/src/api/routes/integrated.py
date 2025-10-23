@@ -17,6 +17,9 @@ from src.scenarios.production_monitoring import ProductionMonitoringAgent
 from src.scenarios.predictive_maintenance import PredictiveMaintenanceAgent
 from src.scenarios.quality_control import QualityControlAgent
 from src.api.schemas.schemas import ChatRequest, RagSearchRequest
+from uuid import UUID, uuid4
+from sqlalchemy import select
+from src.core.models.orm_models import Conversation  # 실제 위치에 맞게 임포트
 
 
 logger = logging.getLogger(__name__)
@@ -44,6 +47,40 @@ def get_rag_dep() -> RAGPipeline:
     # 필요 시 새 인스턴스 반환(간단), pool/reuse가 필요하면 app.state 등에 캐시
     return get_rag_pipeline(RAG_CFG)
 
+def _parse_uuid_maybe(value: str | None) -> UUID | None:
+    if not value:
+        return None
+    try:
+        return UUID(value)
+    except Exception:
+        return None
+
+async def _ensure_conversation(db: AsyncSession, user_email: str, incoming_id: str | None) -> UUID:
+    """
+    - 유효한 UUID가 오면: 존재 여부 확인 후 없으면 생성
+    - UUID가 아니면: 새 UUID 발급 후 생성
+    항상 존재하는 Conversation의 UUID를 반환
+    """
+    cid = _parse_uuid_maybe(incoming_id)
+    if cid:
+        # 존재 여부 확인
+        row = await db.execute(select(Conversation).where(Conversation.id == cid))
+        conv = row.scalar_one_or_none()
+        if conv:
+            return cid
+        # 없으면 생성
+        conv = Conversation(id=cid, user_email=user_email)
+        db.add(conv)
+        await db.flush()
+        return cid
+
+    # 유효하지 않으면 새로 발급/생성
+    new_id = uuid4()
+    conv = Conversation(id=new_id, user_email=user_email)
+    db.add(conv)
+    await db.flush()
+    return new_id
+
 @router.post("/login")
 async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
     """로그인"""
@@ -70,9 +107,8 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
         "session": session_data
     }
 
-
 @router.post("/rag/search")
-async def rag_search(req: RagSearchRequest):
+async def rag_search(req: RagSearchRequest, rag: RAGPipeline = Depends(get_rag_dep)):
     results = await rag.search(req.query, k=req.top_k)
     return {"results": results}
 
@@ -91,30 +127,21 @@ async def chat(
             request_data.user_email or 
             "demo@kainexa.local"
         )
-        
+            
         # 대화 관리자
         conv_manager = ConversationManager(db)
-        
-        # 대화 ID 처리
-        conversation_id = request_data.conversation_id
-        if not conversation_id:
-            # 새 대화 생성 (세션 없이)
-            from src.core.models import Conversation
-            import uuid
-            
-            conversation = Conversation(
-                id=uuid.uuid4(),
-                title=f"대화 {datetime.now():%Y-%m-%d %H:%M}",
-                context={},
-                status="active"
-            )
-            db.add(conversation)
-            await db.commit()
-            conversation_id = str(conversation.id)
+
+        # 대화 ID 정규화(항상 UUID가 되도록 보장하고, 없으면 생성)
+        conversation_uuid = await _ensure_conversation(
+            db=db, 
+            user_email=user_email, 
+            incoming_id=request_data.conversation_id
+        )
+        conversation_id = str(conversation_uuid)  # 응답/로그 용 문자열
         
         # 사용자 메시지 저장
         await conv_manager.add_message(
-            conversation_id=conversation_id,
+            conversation_id=conversation_uuid,
             role="user",
             content=request_data.message
         )
@@ -181,13 +208,13 @@ async def chat(
         
         # 어시스턴트 메시지 저장
         await conv_manager.add_message(
-            conversation_id=conversation_id,
+            conversation_id=conversation_uuid,
             role="assistant",
             content=response_text
         )
         
         return {
-            "conversation_id": conversation_id,
+            "conversation_id": conversation_uuid,
             "response": response_text,
             "sources": [r.get("source", "") for r in (rag_results or [])],
             "timestamp": datetime.now(timezone.utc).isoformat()
@@ -375,10 +402,12 @@ async def get_conversation_history(
 ):
     """대화 기록 조회"""
     conv_manager = ConversationManager(db)
-    messages = await conv_manager.get_conversation_history(
-        conversation_id,
-        limit=limit
-    )
+        
+    cid = _parse_uuid_maybe(conversation_id)
+    if not cid:
+        raise HTTPException(status_code=400, detail="conversation_id must be a valid UUID")
+    messages = await conv_manager.get_conversation_history(str(cid), limit=limit)
+    
     
     return {
         "conversation_id": conversation_id,
