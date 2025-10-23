@@ -13,7 +13,7 @@ import os
 
 from src.api.routes.integrated import router as integrated_router
 from src.core.config import settings
-from src.models.solar_llm import SolarLLM
+#from src.core.models.solar_llm import SolarLLM
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -39,6 +39,7 @@ async def lifespan(app: FastAPI):
                 # HuggingFace Hub 모델
                 logger.info(f"Using HuggingFace model: {model_path}")
             
+            from src.core.models.solar_llm import SolarLLM
             llm = SolarLLM(
                 model_path=model_path,  # 문자열로 전달
                 load_in_8bit=True,  # 8비트 양자화

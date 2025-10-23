@@ -15,6 +15,8 @@ class Role(str, Enum):
 class ChatRequest(BaseModel):
     message: str = Field(..., description="사용자 메시지")
     session_id: Optional[str] = Field(None, description="세션 ID")
+    conversation_id: Optional[str] = Field(None, description="대화 ID")   # ✅ 추가
+    user_email: Optional[str] = Field(None, description="사용자 이메일")   # ✅ 추가
     context: Optional[Dict[str, Any]] = Field(default_factory=dict)
     stream: bool = Field(False, description="스트리밍 여부")
     
