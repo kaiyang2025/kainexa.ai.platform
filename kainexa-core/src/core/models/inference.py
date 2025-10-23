@@ -1,12 +1,12 @@
-# src/models/inference.py
+# src/core/models/inference.py
 """통합 추론 실행"""
 import asyncio
 from typing import Dict, Any
 import time
 import torch
 
-from src.models.model_factory import ModelFactory
-from src.monitoring.metrics import MetricsCollector
+from src.core.models.model_factory import ModelFactory
+from src.core.monitoring.metrics_collector import MetricsCollector
 
 class InferenceEngine:
     """추론 엔진"""
