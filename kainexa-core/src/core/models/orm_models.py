@@ -1,4 +1,4 @@
-# src/core/models.py 생성
+# src/core/models/orm_models.py 생성
 """
 데이터베이스 모델 정의
 """

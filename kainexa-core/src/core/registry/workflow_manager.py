@@ -103,6 +103,8 @@ class Workflow(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
     active_versions: Dict[str, str] = Field(default_factory=dict)  # env -> version
 
+def _has_db(self) -> bool:
+    return bool(getattr(self, "db", None) and hasattr(self.db, "acquire"))
 # ========== Registry Manager ==========
 class WorkflowManager:
     """Workflow Registry Manager"""
@@ -745,7 +747,7 @@ class WorkflowManager:
             metrics=result.get("metrics", {}),
         )
 
-    async def publish_workflow(self, request) -> Any:
+    async def publish_workflow_legacy(self, request) -> Any:
         """
         - self.db.fetch_one(...) → {"status": "compiled", "version": "..."}
         - 정상일 때 status="published", environment=..., message 포함
