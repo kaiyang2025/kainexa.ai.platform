@@ -82,6 +82,7 @@ app.add_middleware(
 # 라우터 포함
 app.include_router(integrated_router)
 
+
 @app.get("/")
 async def root():
     return {
@@ -96,6 +97,10 @@ async def root():
             "health": "/api/v1/health/full"
         }
     }
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
 
 @app.post("/api/v1/workflow/execute")
 async def execute_workflow(request: dict):
