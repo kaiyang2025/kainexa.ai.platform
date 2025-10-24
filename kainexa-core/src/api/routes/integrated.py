@@ -386,11 +386,11 @@ async def upload_document(
     success = await rag.add_document(text_content, metadata)
     if not success:
         raise HTTPException(status_code=500, detail="Ingest failed: add_document returned False")
-
-    # 응답 구성 (안전 추출)
-    doc_id = meta_dict.get("doc_id") or getattr(metadata, "doc_id", None) or ""
-    title = meta_dict.get("title") or getattr(metadata, "title", None) or file.filename
-    chunks = max(1, len(text_content) // 500)
+    
+    # 응답 구성 (metadata 객체에서 직접 안전 추출)
+    doc_id = getattr(metadata, "doc_id", None) or _raw_meta.get("doc_id", "")
+    title = getattr(metadata, "title", None) or file.filename
+    chunks = max(1, len(text_content) // 500)  # 아주 대략적인 청크 수(옵션)
 
     return DocumentUploadResponse(
         document_id=doc_id,
