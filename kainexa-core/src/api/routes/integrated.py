@@ -433,6 +433,31 @@ async def search_documents(
         "count": len(results)
     }
     
+@router.post("/documents/search")
+async def search_documents_post(
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    rag: RAGPipeline = Depends(get_rag_dep),
+):
+    """
+    문서 검색 (POST, JSON 본문)
+    기대 형식: {"query": "...", "top_k": 3}
+    """
+    query = (body or {}).get("query") or ""
+    top_k = int((body or {}).get("top_k") or 5)
+    if not query:
+        raise HTTPException(status_code=422, detail="`query` is required")
+    # 현재 RAG 구현이 (query, access_level) 시그니처 → top_k는 내부 기본값 사용
+    try:
+        results = await rag.search_with_access_control(query, AccessLevel.INTERNAL)
+    except AttributeError:
+        # 메서드가 없으면 일반 search로 폴백
+        try:
+            results = await rag.search(query, k=top_k)
+        except TypeError:
+            results = await rag.search(query, top_k=top_k)
+    return {"query": query, "results": results, "count": len(results)}
+
 
 @router.post("/scenarios/production")
 async def run_production_scenario(
