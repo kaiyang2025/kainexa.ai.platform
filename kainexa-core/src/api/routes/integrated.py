@@ -164,24 +164,14 @@ async def chat(
         # RAG 검색 (옵션) ─ 결과를 sources로 풍부화
         rag_context = ""
         rag_results = []
-        try:           
-            # 보수적 호출: 키워드 대신 '위치 인자'로 access level 전달
-            # 구현에 따라 k 또는 top_k를 씁니다. (우선 k 시도 → 실패 시 top_k로 재시도)
-            try:
-                rag_results = await rag.search_with_access_control(
-                    request_data.message, AccessLevel.INTERNAL, 3  # (query, access_level, k)
-                )
-            except TypeError:
-                # 시그니처가 (query, access_level, top_k) 형태인 경우
-                rag_results = await rag.search_with_access_control(
-                    request_data.message, AccessLevel.INTERNAL, top_k=3
-                )
-            
-                        
-            if rag_results:
-                rag_context = "\n".join([r.get("text", "")[:200] for r in rag_results[:2]])
-        except AttributeError:            
-            # 메서드가 없다면 일반 search로 폴백
+           
+        try:
+            # 실제 구현 시그니처: (query, access_level)
+            rag_results = await rag.search_with_access_control(
+            request_data.message, AccessLevel.INTERNAL
+            )
+        except AttributeError:
+            # search_with_access_control 이 없으면 일반 search로 폴백
             rag_results = await rag.search(request_data.message, k=3)
         except Exception as e:
             logger.warning("RAG search failed", exc_info=e)
