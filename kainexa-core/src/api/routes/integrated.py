@@ -369,8 +369,8 @@ async def upload_document(
     _raw_meta = {
         "doc_id": f"upload_{datetime.now():%Y%m%d_%H%M%S}",
         "title": file.filename,
-        "source": f"upload/{file.filename}",
-        "access_level": AccessLevel.INTERNAL,
+        "source": f"upload/{file.filename}",        
+        "access_level": getattr(AccessLevel.INTERNAL, "value", "INTERNAL"),
         # "tags": ["upload"],  # 현재 모델에 없으면 자동 제외
         "language": "ko",
     }
