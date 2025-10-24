@@ -62,15 +62,13 @@ async def _ensure_conversation(db: AsyncSession, incoming_id: str | None) -> UUI
     항상 존재하는 Conversation의 UUID를 반환
     """
     cid = _parse_uuid_maybe(incoming_id)
-    if not cid:
-        raise HTTPException(400, "conversation_id must be a valid UUID")
+
+    # 1) incoming_id가 유효한 UUID인 경우: 존재하면 그대로, 없으면 새로 생성
     if cid:
-        # 존재 여부 확인
         row = await db.execute(select(Conversation).where(Conversation.id == cid))
         conv = row.scalar_one_or_none()
         if conv:
             return cid
-        # 없으면 생성        
         conv = Conversation(
             id=cid,
             title=f"대화 {datetime.now():%Y-%m-%d %H:%M}",
@@ -81,8 +79,8 @@ async def _ensure_conversation(db: AsyncSession, incoming_id: str | None) -> UUI
         await db.flush()
         return cid
 
-    # 유효하지 않으면 새로 발급/생성
-    new_id = uuid4()    
+    # 2) incoming_id가 없거나(UUID 아님): 새 UUID 발급 후 새 대화 생성
+    new_id = uuid4()
     conv = Conversation(
         id=new_id,
         title=f"대화 {datetime.now():%Y-%m-%d %H:%M}",
