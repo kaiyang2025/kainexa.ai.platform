@@ -31,6 +31,7 @@ class SolarLLM:
         device: Optional[str] = None,
     ):
         self.model_path = str(Path(model_path))
+        self.model_name = Path(model_path).name  # ← 여기 추가 (모델 이름 저장)
         self.device_map = device_map
         self.load_in_8bit = load_in_8bit
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")

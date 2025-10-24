@@ -353,8 +353,7 @@ async def upload_document(
     metadata = DocumentMetadata(
         doc_id=f"upload_{datetime.now():%Y%m%d_%H%M%S}",
         title=file.filename,
-        source=f"upload/{file.filename}",
-        created_at=datetime.now(timezone.utc),
+        source=f"upload/{file.filename}",        
         access_level=AccessLevel.INTERNAL,
         tags=["upload"],
         language="ko"
