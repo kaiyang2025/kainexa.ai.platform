@@ -400,11 +400,10 @@ async def upload_document(
             }
 
     # ─────────────────────────────────────────────────────────────
-    # 실제 인덱싱 호출 (RAGPipeline 구현 차이를 감안해 폴백 제공)
-    # 우선 컬렉션은 Qdrant에 존재하는 "kainexa_docs" 사용
+    # 실제 인덱싱 호출 (RAGPipeline 구현 차이를 감안한 "존재 메서드만" 폴백)
     collection = "kainexa_docs"
 
-    # metadata를 dict로 정규화 (pydantic/dataclass 겸용)
+    # metadata 정규화
     meta_dict = metadata if isinstance(metadata, dict) else getattr(metadata, "dict", lambda: {})()
     if not meta_dict:
         meta_dict = {
@@ -415,34 +414,73 @@ async def upload_document(
             "language": getattr(metadata, "language", None) or "ko",
         }
 
-    ingested = None
-    try:
-        # 1) 텍스트 직접 삽입
-        ingested = await rag.ingest_text(text_content, metadata=meta_dict, collection=collection)
-    except AttributeError:
+    async def _try_call(callable_):
         try:
-            # 2) 대체 시그니처
-            ingested = await rag.ingest_document(text=text_content, metadata=meta_dict, collection=collection)
+            return await callable_()
         except AttributeError:
+            return None
+        except TypeError:
+            return None
+        except Exception:
+            return None
+
+    ingested = None
+
+    # 1) 가장 가능성 높은 시그니처들 (텍스트 직접 삽입)
+    for fn in [
+        lambda: rag.ingest_text(text_content, metadata=meta_dict, collection=collection),
+        lambda: rag.ingest_text(text_content, meta_dict, collection),  # 위치 인자형
+        lambda: rag.ingest_document(text=text_content, metadata=meta_dict, collection=collection),
+        lambda: rag.add_document(text_content, meta_dict),
+        lambda: rag.upsert_document(text_content, meta_dict),
+    ]:
+        ingested = await _try_call(fn)
+        if ingested:
+            break
+
+    # 2) 배치 계열이 있는 구현들 (documents 리스트)
+    if not ingested:
+        docs = [{"text": text_content, "metadata": meta_dict}]
+        for fn in [
+            lambda: rag.ingest_documents(docs, collection=collection),
+            lambda: rag.upsert_documents(docs, collection=collection),
+            lambda: rag.index_documents(docs, collection=collection),
+            lambda: rag.add(docs, collection=collection),
+        ]:
+            ingested = await _try_call(fn)
+            if ingested:
+                break
+
+    # 3) 파일 경로 기반만 지원하는 구현일 수도 있음 → 임시파일로 폴백
+    if not ingested and hasattr(rag, "ingest"):
+        import tempfile, os
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as tf:
+            tf.write(text_content)
+            tmp_path = tf.name
+        try:
+            # 가장 흔한 시그니처들
+            for fn in [
+                lambda: rag.ingest(file_path=tmp_path, metadata=meta_dict, collection=collection),
+                lambda: rag.ingest(tmp_path, meta_dict, collection),
+                lambda: rag.ingest(tmp_path),
+            ]:
+                ingested = await _try_call(fn)
+                if ingested:
+                    break
+        finally:
             try:
-                # 3) add_document(text, metadata) 형태
-                ingested = await rag.add_document(text_content, meta_dict)
+                os.remove(tmp_path)
             except Exception:
                 pass
-    except TypeError:
-        # 위치 인자만 받는 구현 대응
-        try:
-            ingested = await rag.ingest_text(text_content, meta_dict, collection)
-        except Exception:
-            pass
 
     if not ingested:
-        # 4) add_documents([{text, metadata}], collection=...) 폴백
-        try:
-            ingested = await rag.add_documents([{"text": text_content, "metadata": meta_dict}], collection=collection)
-        except Exception as e:
-            logger.exception("RAG ingest failed")
-            raise HTTPException(status_code=500, detail=f"Ingest failed: {e}")
+        # 현재 RAGPipeline이 제공하는 public 메서드 힌트와 함께 에러 반환
+        available = sorted([m for m in dir(rag) if not m.startswith("_")])
+        logger.error("RAG ingest failed; available methods: %s", available)
+        raise HTTPException(
+            status_code=500,
+            detail="Ingest failed: no compatible ingest method found on RAGPipeline",
+        )
 
     # 응답 구성 (안전 추출)
     doc_id = meta_dict.get("doc_id") or getattr(metadata, "doc_id", None) or ""
