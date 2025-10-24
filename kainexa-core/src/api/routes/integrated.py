@@ -164,11 +164,12 @@ async def chat(
         # RAG 검색 (옵션) ─ 결과를 sources로 풍부화
         rag_context = ""
         rag_results = []
-        try:
+        try:           
             rag_results = await rag.search_with_access_control(
-                query=request_data.message,
-                user_ctx={"access_level": AccessLevel.INTERNAL.value},
-            )
+                request_data.message,
+                user_access_level=AccessLevel.INTERNAL,
+                top_k=3,
+            )            
             if rag_results:
                 rag_context = "\n".join([r.get("text", "")[:200] for r in rag_results[:2]])
         except Exception as e:
@@ -182,7 +183,7 @@ async def chat(
                 "title": (r.get("metadata") or {}).get("title"),
                 "source": (r.get("metadata") or {}).get("source"),
             }
-            for r in rag_results or []
+            for r in (rag_results or [])
         ]     
         
         # LLM 응답 생성
@@ -257,8 +258,15 @@ async def chat(
                 "latency_ms": duration_ms,
                 "rag_used": bool(rag_results),
             },
-        }
-        
+            "meta": {
+            # model_name 없으면 model_id → pipeline 내부 모델 이름 순으로 폴백
+                "model": (getattr(llm, "model_name", None) 
+                            or getattr(llm, "model_id", None)
+                            or getattr(getattr(llm, "pipeline", None),"model_name", None)),
+                "latency_ms": duration_ms,
+                "rag_used": bool(rag_results),
+            },            
+        }        
     except HTTPException:
         raise
     except Exception as e:
