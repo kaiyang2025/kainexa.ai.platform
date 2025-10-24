@@ -448,14 +448,21 @@ async def search_documents_post(
     if not query:
         raise HTTPException(status_code=422, detail="`query` is required")
     # 현재 RAG 구현이 (query, access_level) 시그니처 → top_k는 내부 기본값 사용
+    #try:
+    #    results = await rag.search_with_access_control(query, AccessLevel.INTERNAL)
+    #except AttributeError:
+    #    # 메서드가 없으면 일반 search로 폴백
+    #    try:
+    #        results = await rag.search(query, k=top_k)
+    #    except TypeError:
+    #        results = await rag.search(query, top_k=top_k)
+    
+    # ❶ 인덱싱/검색 파이프라인이 정상인지 raw search로 먼저 확인
     try:
-        results = await rag.search_with_access_control(query, AccessLevel.INTERNAL)
-    except AttributeError:
-        # 메서드가 없으면 일반 search로 폴백
-        try:
-            results = await rag.search(query, k=top_k)
-        except TypeError:
-            results = await rag.search(query, top_k=top_k)
+        results = await rag.search(query, k=top_k)   # ← ACL 미적용
+    except TypeError:
+        results = await rag.search(query, top_k=top_k)
+    
     return {"query": query, "results": results, "count": len(results)}
 
 
