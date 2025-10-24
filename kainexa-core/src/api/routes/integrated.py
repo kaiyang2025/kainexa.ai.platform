@@ -177,12 +177,29 @@ async def chat(
             logger.warning("RAG search failed", exc_info=e)
             rag_results = []
 
+        def _get(d, key, default=None):
+            if isinstance(d, dict):
+                return d.get(key, default)
+            return getattr(d, key, default)
+
+        def _meta(d):
+            m = _get(d, "metadata", {}) or {}
+            if not isinstance(m, dict):
+                m = getattr(m, "dict", lambda: {})()
+            return m
+
+        # rag_context 구성도 안전 접근
+        if rag_results:
+            def _text(r):
+                return _get(r, "text", "") or ""
+            rag_context = "\n".join([_text(r)[:200] for r in rag_results[:2]])
+
         sources = [
             {
-                "id": r.get("id"),
-                "score": r.get("score"),
-                "title": (r.get("metadata") or {}).get("title"),
-                "source": (r.get("metadata") or {}).get("source"),
+                "id": _get(r, "id"),
+                "score": _get(r, "score"),
+                "title": _meta(r).get("title"),
+                "source": _meta(r).get("source"),
             }
             for r in (rag_results or [])
         ]     
@@ -254,19 +271,17 @@ async def chat(
             "response": response_text,
             "sources": sources,                  # ② 풍부화된 소스
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "meta": {                            # ⑤ 메타 정보
-                "model": getattr(llm, "model_name", None),
+            "meta": {
+                # model_name 없으면 model_id → pipeline 내부 모델 이름 순으로 폴백
+                "model": (
+                    getattr(llm, "model_name", None)
+                    or getattr(llm, "model_id", None)
+                    or getattr(getattr(llm, "pipeline", None), "model_name", None)
+                ),
                 "latency_ms": duration_ms,
                 "rag_used": bool(rag_results),
             },
-            "meta": {
-            # model_name 없으면 model_id → pipeline 내부 모델 이름 순으로 폴백
-                "model": (getattr(llm, "model_name", None) 
-                            or getattr(llm, "model_id", None)
-                            or getattr(getattr(llm, "pipeline", None),"model_name", None)),
-                "latency_ms": duration_ms,
-                "rag_used": bool(rag_results),
-            },            
+                      
         }        
     except HTTPException:
         raise
@@ -350,14 +365,40 @@ async def upload_document(
     content = await file.read()
     text_content = content.decode('utf-8')
     
-    metadata = DocumentMetadata(
-        doc_id=f"upload_{datetime.now():%Y%m%d_%H%M%S}",
-        title=file.filename,
-        source=f"upload/{file.filename}",        
-        access_level=AccessLevel.INTERNAL,
-        tags=["upload"],
-        language="ko"
-    )
+    # DocumentMetadata가 가진 필드만 안전하게 전달 (pydantic v1/v2/일반 클래스 대응)
+    _raw_meta = {
+        "doc_id": f"upload_{datetime.now():%Y%m%d_%H%M%S}",
+        "title": file.filename,
+        "source": f"upload/{file.filename}",
+        "access_level": AccessLevel.INTERNAL,
+        # "tags": ["upload"],  # 현재 모델에 없으면 자동 제외
+        "language": "ko",
+    }
+    try:
+        field_names = set(
+            getattr(DocumentMetadata, "model_fields", {}).keys()
+            or getattr(DocumentMetadata, "__fields__", {}).keys()
+        )
+        _filtered = {k: v for k, v in _raw_meta.items() if k in field_names}
+        metadata = DocumentMetadata(**_filtered)
+    except Exception:
+        # pydantic이 아니라면 보수적으로 생성
+        try:
+            metadata = DocumentMetadata(
+                doc_id=_raw_meta.get("doc_id"),
+                title=_raw_meta.get("title"),
+                source=_raw_meta.get("source"),
+                access_level=_raw_meta.get("access_level"),
+            )
+        except TypeError:
+            # 최후의 수단: dict 그대로 (ingest가 dict 허용 시)
+            metadata = {
+                "doc_id": _raw_meta.get("doc_id"),
+                "title": _raw_meta.get("title"),
+                "source": _raw_meta.get("source"),
+                "access_level": _raw_meta.get("access_level"),
+            }
+    
     
     # RAGPipeline에 add_document가 있는 경우:
     success = await rag.add_document(text_content, metadata)
@@ -383,17 +424,15 @@ async def search_documents(
     db: AsyncSession = Depends(get_db),
     rag: RAGPipeline = Depends(get_rag_dep),
 ):
-    """문서 검색"""
-    results = await rag.search_with_access_control(
-        query=query,
-        user_ctx={"access_level": AccessLevel.INTERNAL.value}
-    )
+    """문서 검색"""  
+    results = await rag.search_with_access_control(query, AccessLevel.INTERNAL)
     
     return {
         "query": query,
         "results": results,
         "count": len(results)
     }
+    
 
 @router.post("/scenarios/production")
 async def run_production_scenario(
