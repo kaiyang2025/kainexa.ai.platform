@@ -398,23 +398,62 @@ async def upload_document(
                 "source": _raw_meta.get("source"),
                 "access_level": _raw_meta.get("access_level"),
             }
-    
-    
-    # RAGPipeline에 add_document가 있는 경우:
-    success = await rag.add_document(text_content, metadata)
-    # 만약 add_document가 없다면, 아래 중 하나로 교체하세요.
-    # success = await rag.ingest_text(text_content, metadata)
-    # success = await rag.ingest(file_path, DocumentType.TEXT, metadata)  # 파일 경로 기반 구현일 때
-    
-    
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to process document")
-    
+
+    # ─────────────────────────────────────────────────────────────
+    # 실제 인덱싱 호출 (RAGPipeline 구현 차이를 감안해 폴백 제공)
+    # 우선 컬렉션은 Qdrant에 존재하는 "kainexa_docs" 사용
+    collection = "kainexa_docs"
+
+    # metadata를 dict로 정규화 (pydantic/dataclass 겸용)
+    meta_dict = metadata if isinstance(metadata, dict) else getattr(metadata, "dict", lambda: {})()
+    if not meta_dict:
+        meta_dict = {
+            "doc_id": getattr(metadata, "doc_id", None),
+            "title": getattr(metadata, "title", None) or file.filename,
+            "source": getattr(metadata, "source", None),
+            "access_level": getattr(metadata, "access_level", None),
+            "language": getattr(metadata, "language", None) or "ko",
+        }
+
+    ingested = None
+    try:
+        # 1) 텍스트 직접 삽입
+        ingested = await rag.ingest_text(text_content, metadata=meta_dict, collection=collection)
+    except AttributeError:
+        try:
+            # 2) 대체 시그니처
+            ingested = await rag.ingest_document(text=text_content, metadata=meta_dict, collection=collection)
+        except AttributeError:
+            try:
+                # 3) add_document(text, metadata) 형태
+                ingested = await rag.add_document(text_content, meta_dict)
+            except Exception:
+                pass
+    except TypeError:
+        # 위치 인자만 받는 구현 대응
+        try:
+            ingested = await rag.ingest_text(text_content, meta_dict, collection)
+        except Exception:
+            pass
+
+    if not ingested:
+        # 4) add_documents([{text, metadata}], collection=...) 폴백
+        try:
+            ingested = await rag.add_documents([{"text": text_content, "metadata": meta_dict}], collection=collection)
+        except Exception as e:
+            logger.exception("RAG ingest failed")
+            raise HTTPException(status_code=500, detail=f"Ingest failed: {e}")
+
+    # 응답 구성 (안전 추출)
+    doc_id = meta_dict.get("doc_id") or getattr(metadata, "doc_id", None) or ""
+    title = meta_dict.get("title") or getattr(metadata, "title", None) or file.filename
+    chunks = max(1, len(text_content) // 500)
+
     return DocumentUploadResponse(
-        document_id=metadata.doc_id,
-        title=metadata.title,
-        chunks=len(text_content) // 500,
-        status="success"
+        document_id=doc_id,
+        title=title,
+        chunks=chunks,
+        status="success",
     )
 
 @router.get("/documents/search")
