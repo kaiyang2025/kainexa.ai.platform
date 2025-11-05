@@ -3,8 +3,9 @@ services:
     image: opensearchproject/opensearch:2
     environment:
       - discovery.type=single-node
-      - plugins.security.disabled=true    # ← 보안 플러그인 OFF
       - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
+      # 보안 ON → 초기 admin 비번 필요
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_INITIAL_ADMIN_PASSWORD}
     ports:
       - "9200:9200"
     ulimits:
@@ -14,3 +15,6 @@ services:
       memlock:
         soft: -1
         hard: -1
+    # (선택) 별도 env 파일로 분리하고 싶다면:
+    # env_file:
+    #   - ./docker/.env.opensearch
