@@ -1,14 +1,16 @@
-version: "3.8"
 services:
   opensearch:
     image: opensearchproject/opensearch:2
     environment:
       - discovery.type=single-node
-      - plugins.security.disabled=true
-      - OPENSEARCH_JAVA_OPTS=-Xms1g -Xmx1g
+      - plugins.security.disabled=true    # ← 보안 플러그인 OFF
+      - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
     ports:
       - "9200:9200"
     ulimits:
       nofile:
         soft: 65536
         hard: 65536
+      memlock:
+        soft: -1
+        hard: -1
