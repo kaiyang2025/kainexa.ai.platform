@@ -28,7 +28,26 @@ pip install --upgrade pip
 pip install -r requirements.txt
 
 # 2) OpenSearch 단일 노드
-docker compose -f docker/opensearch.yml up -d
+
+export OPENSEARCH_INITIAL_ADMIN_PASSWORD='Ax7#pR2q!V9c'
+
+# 커널 파라미터(한 번만 하면 됨)
+sudo sysctl -w vm.max_map_count=262144
+
+# 확인
+
+docker compose -f docker/opensearch.yml down -v
+# docker compose -f docker/opensearch.yml up -d
+docker compose --env-file ./.env -f docker/opensearch.yml up -d
+docker compose -f docker/opensearch.yml ps
+
+docker compose -f docker/opensearch.yml logs --tail=100
+
+# 비밀번호 변경
+curl -k -u 'admin:현재비번' \
+  -H 'Content-Type: application/json' \
+  -X PUT 'https://localhost:9200/_plugins/_security/api/account' \
+  -d '{"current_password":"현재비번","password":"새비번"}'
 
 # 3) .env 설정
 cp .env.example .env
@@ -45,7 +64,8 @@ python scripts/build_index.py
 uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
 
 # 7) 데모 UI
-streamlit run app/streamlit_app.py
+# streamlit run app/streamlit_app.py
+streamlit run app/streamlit_app.py --server.address 0.0.0.0 --server.port 8501
 
 
 데모 질문 예시
