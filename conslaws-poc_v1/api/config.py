@@ -19,3 +19,6 @@ LAMBDA_DENSE = float(os.getenv("LAMBDA_DENSE", "0.5"))
 
 PROMPT_PATH = ROOT / "prompts" / "answer_system.txt"
 SYSTEM_PROMPT = PROMPT_PATH.read_text(encoding="utf-8") if PROMPT_PATH.exists() else ""
+
+# 리랭크 후보 수 비율(Top-k의 몇 배를 리랭크에 태울지)
+RERANK_CAND_FACTOR = 1.0   # 1.0이면 정확히 k만, 2.0이면 2k

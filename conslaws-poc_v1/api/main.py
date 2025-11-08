@@ -11,7 +11,7 @@ try:
 except Exception:
     OpenAI = None
 
-app = FastAPI(title="Construction-Law-RAG-POC API", version="0.2.0")
+app = FastAPI(title="Construction-Law-RAG-POC API", version="0.2.1")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 retriever = Retriever()
@@ -54,14 +54,19 @@ def health():
     return {"ok": True}
 
 @app.get("/search", response_model=SearchResponse)
-def search(q: str, k: int = 8, rerank: bool = True):
-    hits = retriever.search(q, rerank=rerank, k=k)
+def search(q: str, k: int = 8, rerank: bool = True, cand_factor: float = 1.0):
+    """
+    cand_factor: 리랭커에 태울 후보 폭 (k의 배수). 예) 2.0 => Top-2k 리랭크
+    """
+    hits = retriever.search(q, rerank=rerank, k=k, cand_factor=cand_factor)        
     results = [SearchHit(**h) for h in hits]
     return SearchResponse(query=q, results=results)
 
 @app.post("/answer", response_model=AnswerResponse)
 def answer(req: AnswerRequest):
-    hits = retriever.search(req.query, rerank=req.rerank, k=req.k)
+    # req.cand_factor가 None이면 1.0으로 처리
+    cf = req.cand_factor if getattr(req, "cand_factor", None) is not None else 1.0
+    hits = retriever.search(req.query, rerank=req.rerank, k=req.k, cand_factor=cf)
     prompt = build_prompt(req.query, hits)
     text = call_llm(prompt, req.gen_backend, req.gen_model)
     cits = [Citation(law=h["law_name"], clause_id=h["clause_id"]) for h in hits]

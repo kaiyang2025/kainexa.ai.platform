@@ -1,11 +1,12 @@
 import json, pathlib, faiss
 from typing import List, Dict, Any
 from sentence_transformers import SentenceTransformer, CrossEncoder
+import numpy as np
 from opensearchpy import OpenSearch
 from .config import (
     OPENSEARCH_URL, OPENSEARCH_INDEX,
     EMBED_MODEL, RERANK_MODEL,
-    BM25_K, DENSE_K, FINAL_K
+    BM25_K, DENSE_K, FINAL_K, RERANK_CAND_FACTOR
 )
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -57,12 +58,14 @@ class Retriever:
         return hits
 
     @staticmethod
-    def _rrf_fuse(bm25_hits, dense_hits, k=FINAL_K, k_rrf=60):
+    def _rrf_fuse(bm25_hits, dense_hits, k=FINAL_K, k_rrf=60, cand_factor=1.0):
         rank = {}
         for rank_list in [bm25_hits, dense_hits]:
             for i, h in enumerate(rank_list):
                 rank[h["id"]] = rank.get(h["id"], 0.0) + 1.0/(k_rrf + i + 1)
-        fused = [{"id": doc_id, "score": score} for doc_id, score in sorted(rank.items(), key=lambda x: x[1], reverse=True)[:k*5]]
+        n = max(1, int(k * cand_factor))  # 리랭크 후보폭: cand_factor × k
+        fused = [{"id": doc_id, "score": score}
+                  for doc_id, score in sorted(rank.items(), key=lambda x: x[1], reverse=True)[:n]]
         return fused
 
     def _merge(self, fused):
@@ -81,10 +84,22 @@ class Retriever:
             })
         return out
 
-    def search(self, q: str, rerank: bool = True, k: int = FINAL_K):
+    def search(self, q: str, rerank: bool = True, k: int = FINAL_K,
+               alpha: float = None,                    # None이면 RRF, 수치 주면 가중합
+               cand_factor: float = RERANK_CAND_FACTOR # 리랭크 후보폭 (k의 배수)
+               ):
         bm25 = self._bm25(q)
         dense = self._dense(q)
-        fused = self._rrf_fuse(bm25, dense, k=k)
+        # 결합 방식 선택
+        if alpha is not None:
+            try:
+                a = float(alpha)
+            except Exception:
+                a = 0.5
+            a = max(0.0, min(1.0, a))
+            fused = self._weighted_fuse(bm25, dense, k=k, alpha=a, cand_factor=cand_factor)
+        else:
+            fused = self._rrf_fuse(bm25, dense, k=k, cand_factor=cand_factor)
         merged = self._merge(fused)
         if rerank and self.reranker is not None:
             pairs = [(q, h["text"]) for h in merged]
