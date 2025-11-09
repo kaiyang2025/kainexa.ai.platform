@@ -220,20 +220,30 @@ class Retriever:
     
     # ----------------- 후처리 -----------------
 
-    def _merge(self, cand: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """후보 id 목록에 문서 필드 붙이기"""
+    def _merge(
+        self,
+        cand: List[Dict[str, Any]],
+        bm25_map: Optional[Dict[str, float]] = None,
+        dense_map: Optional[Dict[str, float]] = None,
+    ) -> List[Dict[str, Any]]:
+        """후보 id 목록에 문서 필드 붙이기 + 원점수(bm25/dense) 붙이기"""
         out: List[Dict[str, Any]] = []
         for c in cand:
             did = c["id"]
             base = self.docs.get(did, {})
             rec = {
                 "id": did,
-                "score": float(c.get("score", 0.0)),
+                "score": float(c.get("score", 0.0)),  # 결합 점수 또는(리랭크 ON 시) 리랭크 점수
                 "law_name": base.get("law_name"),
                 "clause_id": base.get("clause_id"),
                 "title": base.get("title"),
                 "text": base.get("text"),
             }
+            # 원점수(있으면 그대로 노출, 없으면 None)
+            if bm25_map is not None:
+                rec["bm25_score"] = float(bm25_map.get(did)) if did in bm25_map else None
+            if dense_map is not None:
+                rec["dense_cosine"] = float(dense_map.get(did)) if did in dense_map else None
             out.append(rec)
         return out
     
@@ -263,6 +273,10 @@ class Retriever:
         # 1) 개별 검색
         bm25 = self._bm25(q, k=bm25_k)
         dense = self._dense(q, k=dense_k)
+        
+        # 추가: 원점수 맵(id -> score) 구성
+        bm25_map = {h["id"]: float(h.get("score", 0.0)) for h in bm25 if h.get("id")}
+        dense_map = {h["id"]: float(h.get("score", 0.0)) for h in dense if h.get("id")}
 
         # 2) 결합
         method = (method or "rrf").lower()
@@ -276,8 +290,9 @@ class Retriever:
             fused = self._weighted_fuse(bm25, dense, k=k, alpha=a, cand_factor=cand_factor)
         else:
             fused = self._rrf_fuse(bm25, dense, k=k, cand_factor=cand_factor)
-
-        merged = self._merge(fused)
+        
+        # 3) 병합(문서필드 + 원점수 주입)
+        merged = self._merge(fused, bm25_map=bm25_map, dense_map=dense_map)
 
         # 3) 리랭크
         if rerank and self.reranker is not None:
@@ -285,7 +300,7 @@ class Retriever:
             pairs = [(q, h["text"] or "") for h in merged]
             scores = self.reranker.predict(pairs)
             for h, s in zip(merged, scores):
-                h["score"] = float(s)
+                h["score"] = float(s)    # bm25_score/dense_cosine은 그대로 남음
             merged.sort(key=lambda x: x["score"], reverse=True)
 
         return merged[:k]
