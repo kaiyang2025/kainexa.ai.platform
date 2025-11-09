@@ -171,50 +171,93 @@ def _call_answer(query: str, topk: int, rerank: bool, cand_factor: float, gen_ba
 tab_search, tab_eval = st.tabs(["🔎 검색", "📊 평가"])
 
 # ============================ 🔎 검색 / 생성 ============================
+# ============================ 🔎 검색 ============================
 with tab_search:
     st.subheader("검색")
+
+    # 공통 질의 입력
     q = st.text_input("질문/검색어를 입력하세요", value="하도급대금 직접지급 요건은?")
-    col1, col2 = st.columns([1, 1])
 
-    with col1:
-        if st.button("검색 실행", use_container_width=True):
+    # 세션 상태 초기화 (검색/답변 결과 유지용)
+    if "search_results" not in st.session_state:
+        st.session_state.search_results = []
+    if "search_meta" not in st.session_state:
+        st.session_state.search_meta = {}
+    if "gen_answer" not in st.session_state:
+        st.session_state.gen_answer = {}
+
+    # 좌우 2열 배치
+    col_left, col_right = st.columns(2, gap="large")
+
+    # ---------------------- 왼쪽: 검색 실행 ----------------------
+    with col_left:
+        st.markdown("### 검색 실행")
+        if st.button("검색 실행", key="btn_search", use_container_width=True):
+            t0 = time.perf_counter()
             results = _call_search(q, k, rerank, cand_factor)
-            if not results:
-                st.warning("검색 결과가 없습니다.")
-            else:
-                rows = []
-                for i, r in enumerate(results[:k], 1):
-                    rows.append({
-                        "rank": i,
-                        "id": _extract_id(r),
-                        "score": r.get("score"),
-                        "law_name": r.get("law_name"),
-                        "clause_id": r.get("clause_id"),
-                        "title": r.get("title"),
-                        "text": (r.get("text") or "")[:220] + ("…" if r.get("text") and len(r.get("text")) > 220 else "")
-                    })
-                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            t1 = time.perf_counter()
+            st.session_state.search_results = results or []
+            st.session_state.search_meta = {
+                "query": q,
+                "latency_ms": (t1 - t0) * 1000.0,
+                "k": k,
+                "rerank": rerank,
+                "cand_factor": cand_factor,
+            }
 
-    with col2:
-        if st.button("생성 실행(답변)", type="primary", use_container_width=True):
+        # 최근 검색 결과 표시(생성 버튼을 눌러도 유지)
+        results = st.session_state.get("search_results", [])
+        if results:
+            rows = []
+            for i, r in enumerate(results[:k], 1):
+                rows.append({
+                    "rank": i,
+                    "id": _extract_id(r),
+                    "score": r.get("score"),
+                    "law_name": r.get("law_name"),
+                    "clause_id": r.get("clause_id"),
+                    "title": r.get("title"),
+                    "text": (r.get("text") or "")[:220] + ("…" if r.get("text") and len(r.get("text")) > 220 else "")
+                })
+            df = pd.DataFrame(rows, columns=["rank","id","score","law_name","clause_id","title","text"])
+            st.dataframe(df, use_container_width=True, hide_index=True)
+            meta = st.session_state.get("search_meta", {})
+            if meta:
+                st.caption(
+                    f"query='{meta.get('query','')}', "
+                    f"k={meta.get('k')}, rerank={meta.get('rerank')}, cand_factor={meta.get('cand_factor')} "
+                    f"→ latency={meta.get('latency_ms', 0.0):.1f} ms"
+                )
+        else:
+            st.info("아직 검색 결과가 없습니다. ‘검색 실행’을 눌러주세요.")
+
+    # ---------------------- 오른쪽: 생성 실행(답변) ----------------------
+    with col_right:
+        st.markdown("### 생성 실행(답변)")
+        if st.button("생성 실행(답변)", key="btn_answer", type="primary", use_container_width=True):
             ar = _call_answer(q, k, rerank, cand_factor, gen_backend, gen_model)
-            if not ar:
-                st.warning("답변이 없습니다.")
-            else:
-                st.markdown("#### 답변")
-                st.write(ar.get("answer", ""))
+            st.session_state.gen_answer = ar or {}
 
-                citations = ar.get("citations", [])
-                if citations:
-                    st.markdown("##### 인용(법령/조문)")
-                    st.caption(", ".join([f"[{c.get('law','') or c.get('law_name','')} {c.get('clause_id','')}]" for c in citations]))
+        ar = st.session_state.get("gen_answer", {})
+        if ar:
+            st.markdown("#### 답변")
+            st.write(ar.get("answer", ""))
 
-                used = ar.get("used_contexts") or ar.get("contexts") or []
-                if used:
-                    st.markdown("##### 사용 컨텍스트(상위 3개)")
-                    for i, c in enumerate(used[:3], 1):
-                        st.write(f"**[{i}]** {(c.get('title') or c.get('clause_id') or '')}")
-                        st.write((c.get("text") or "")[:500])
+            citations = ar.get("citations", [])
+            if citations:
+                st.markdown("##### 인용(법령/조문)")
+                st.caption(", ".join([f"[{c.get('law','') or c.get('law_name','')} {c.get('clause_id','')}]" for c in citations]))
+
+            used = ar.get("used_contexts") or ar.get("contexts") or []
+            if used:
+                st.markdown("##### 사용 컨텍스트(상위 3개)")
+                for i, c in enumerate(used[:3], 1):
+                    title = c.get("title") or c.get("clause_id") or ""
+                    st.write(f"**[{i}]** {title}")
+                    st.write((c.get("text") or "")[:500])
+        else:
+            st.info("아직 생성된 답변이 없습니다. ‘생성 실행(답변)’을 눌러주세요.")
+
 
 # ============================ 📊 평가(Eval) ============================
 with tab_eval:
