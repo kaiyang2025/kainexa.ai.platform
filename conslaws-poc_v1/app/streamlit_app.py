@@ -224,7 +224,14 @@ with tab_search:
 
         # 최근 검색 결과 표시(생성 버튼을 눌러도 유지)
         results = st.session_state.get("search_results", [])
-        if results:
+        if results:            
+            def _to_float(v):
+                try:
+                    if v is None or v == "":
+                        return None
+                    return float(v)
+                except Exception:
+                    return None
             
             # 1위 점수(상대값 계산용). 값이 없을 경우를 대비해 1e-9로 가드
             topk_results = results[:k]
@@ -232,34 +239,38 @@ with tab_search:
             
             
             rows = []
-            for i, r in enumerate(results[:k], 1):
+            for i, r in enumerate(topk_results, 1):
                 
                 fused = float(r.get("score") or 0.0)
                 rel = (fused / max_fused * 100.0) if max_fused > 0 else 0.0
 
-                # 백엔드가 제공하면 표시, 없으면 공란
-                bm25 = r.get("bm25_score") or r.get("_bm25_score") or ""
-                dense = r.get("dense_cosine") or r.get("dense_score") or ""
+                # ✅ 절대 'or ""'로 바로 처리하지 말고, None 여부를 먼저 본 뒤 float 변환
+                bm25_raw = r.get("bm25_score") if "bm25_score" in r else r.get("_bm25_score")
+                dense_raw = r.get("dense_cosine") if "dense_cosine" in r else r.get("dense_score")
+                bm25_val = _to_float(bm25_raw)
+                dense_val = _to_float(dense_raw)
                 
                 rows.append({
                     "rank": i,
-                    "id": _extract_id(r),
-                    "fused_score": round(fused, 6),
-                    "relative_%": round(rel, 1),
-                    "bm25_score": bm25,
-                    "dense_cosine": dense,
+                    "id": _extract_id(r),                    
                     "law_name": r.get("law_name"),
                     "clause_id": r.get("clause_id"),
                     "title": r.get("title"),
+                    # 보기 좋게 고정 포맷
+                    "fused_score": f"{fused:.6f}",
+                    "relative_%": f"{rel:.1f}",
+                    "bm25_score": (f"{bm25_val:.4f}" if bm25_val is not None else ""),
+                    "dense_cosine": (f"{dense_val:.4f}" if dense_val is not None else ""),
                     "text": (r.get("text") or "")[:220] + ("…" if r.get("text") and len(r.get("text")) > 220 else "")
                 })
             df = pd.DataFrame(
                 rows, 
                 columns=[
-                    "rank","id","fused_score","relative_%","bm25_score","dense_cosine",
-                    "law_name","clause_id","title","text"
+                    "rank", "id", "law_name", "clause_id", "title",
+                    "fused_score", "relative_%", "bm25_score", "dense_cosine", "text"
                     ])
             st.dataframe(df, use_container_width=True, hide_index=True)
+            
             meta = st.session_state.get("search_meta", {})
             if meta:
                 st.caption(
@@ -269,9 +280,8 @@ with tab_search:
                 )
             # 점수 해석 가이드
             st.caption(
-                "설명: fused_score=RRF 결합 점수(정렬용), "
-                "relative_%=fused_score/1위 점수×100. "
-                "bm25_score/dense_cosine은 백엔드가 제공할 경우 자동 표시됩니다."
+                "설명: fused_score=RRF 결합 점수(정렬용), relative_%=1위 대비 상대값. "
+                "bm25_score/dense_cosine은 백엔드가 제공할 때만 표시됩니다."
             )
         else:
             st.info("아직 검색 결과가 없습니다. ‘검색 실행’을 눌러주세요.")
