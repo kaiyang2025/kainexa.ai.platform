@@ -192,7 +192,24 @@ with tab_search:
     # ---------------------- 왼쪽: 검색 실행 ----------------------
     with col_left:
         st.markdown("### 검색 실행")
-        if st.button("검색 실행", key="btn_search", use_container_width=True):
+        # if st.button("검색 실행", key="btn_search", use_container_width=True):
+            
+        # 버튼 2개를 가로로 배치
+        bcol1, bcol2 = st.columns([1, 1])
+        with bcol1:
+            do_search = st.button("검색 실행", key="btn_search", use_container_width=True)
+        with bcol2:
+            do_clear = st.button("검색 결과 초기화", key="btn_clear_search", use_container_width=True)
+            
+        # 초기화 버튼: 검색 결과만 비움(답변은 유지)
+        if do_clear:
+            st.session_state.search_results = []
+            st.session_state.search_meta = {}
+            st.session_state.gen_answer = {}
+            st.toast("검색 결과를 초기화했습니다.", icon="🧹")
+            
+        # 검색 실행    
+        if do_search:    
             t0 = time.perf_counter()
             results = _call_search(q, k, rerank, cand_factor)
             t1 = time.perf_counter()
