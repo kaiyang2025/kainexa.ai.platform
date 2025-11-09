@@ -1,154 +1,334 @@
+# -*- coding: utf-8 -*-
+"""
+streamlit_app.py
+- 검색/생성 데모 + 평가(Eval) 탭
+- 지표: nDCG@k / MRR@k / Recall@k / P95 latency
+- 개선점 반영:
+  1) nDCG가 다중 정답(gold_ids) 지원
+  2) 업로드 파서가 query/question, gold_ids/gold_id 모두 허용
+  3) API 호출 예외 처리 강화 + dict 접근 안전화
+  4) 대용량 평가 UX: 진행률/CSV 내보내기
+  5) cand_factor(리랭크 후보폭) 안내
+"""
+from __future__ import annotations
+
+
+import os
+import json
+import math
+import time
+from typing import List, Dict, Any, Optional
+
+import numpy as np
+import pandas as pd
 import streamlit as st
 import httpx
-import json, math, time
-import pandas as pd
 
-
-API = st.secrets.get("API_URL", "http://localhost:8000")
+# ---------------------------- 설정 ----------------------------
+API_DEFAULT = os.environ.get("API_URL", "http://localhost:8000")
+API = st.secrets.get("API_URL", API_DEFAULT )
 
 st.set_page_config(page_title="건설법령 RAG POC", layout="wide")
-st.title("🏗️ 건설법령 RAG POC (v2)")
+st.sidebar.markdown("### ⚙️ 설정")
+st.sidebar.write(f"**API**: `{API}`")
 
-# === Sidebar: 리랭크 후보폭 설정 ===
-st.sidebar.markdown("### 검색/리랭크 설정")
-# cand_factor: 리랭커에 태울 후보 수를 k의 몇 배로 할지 (예: 2.0이면 Top-2k를 리랭크)
-cand_factor = st.sidebar.slider("리랭크 후보폭 (cand_factor × k)", 1.0, 5.0, 2.0, 0.5)
-st.sidebar.caption("예) Top-k=8, cand_factor=2.0 → 상위 16개를 리랭크")
+# 공통 옵션(사이드바)
+k = st.sidebar.slider("Top-k", min_value=3, max_value=30, value=10, step=1)
+rerank = st.sidebar.checkbox("리랭크 사용(CrossEncoder)", value=True)
+cand_factor = st.sidebar.slider("cand_factor (리랭크 후보폭 = k×cand_factor)", min_value=1.0, max_value=5.0, value=2.0, step=0.1)
+warmup = st.sidebar.number_input("Warmup(평가 전 예열 호출 수)", min_value=0, max_value=20, value=2, step=1)
+st.sidebar.caption(f"실제 리랭크 후보 수 ≈ **{int(round(k * max(1.0, cand_factor)))}**")
+
+# (선택) 생성 백엔드/모델
+with st.sidebar.expander("생성 모델 (선택)", expanded=False):
+    gen_backend = st.text_input("gen_backend", value="auto")
+    gen_model = st.text_input("gen_model", value="gpt-4o-mini")
+
+# ---------------------------- 유틸 함수 ----------------------------
+def _safe_get_candidates(sr: Any) -> List[Dict[str, Any]]:
+    """
+    다양한 형태의 /search 응답에서 결과 리스트를 최대한 유연하게 추출
+    예상 형태:
+      - {"results": [ {...}, ... ]}
+      - {"hits": [ {...}, ... ]}
+      - [ {...}, ... ]
+      - {"items": [ ... ]}
+    """
+    if isinstance(sr, list):
+        return [x for x in sr if isinstance(x, dict)]
+    if isinstance(sr, dict):
+        for key in ("results", "hits", "items"):
+            if isinstance(sr.get(key), list):
+                return [x for x in sr[key] if isinstance(x, dict)]
+        # 단일 객체일 수도 있음
+        if "id" in sr or "_id" in sr:
+            return [sr]
+    return []
+
+
+def _extract_id(rec: Dict[str, Any]) -> Optional[str]:
+    return rec.get("id") or rec.get("_id") or rec.get("doc_id")
 
 # ===================== Eval helpers (간단 메트릭 계산) ======================
 def _dcg_at_k(rels, k=10):
-    return sum(rel / math.log2(i + 2) for i, rel in enumerate(rels[:k]))
+    return sum((1.0 if r else 0.0) / math.log2(i + 2) for i, r in enumerate(rels[:k]))
+
 def _ndcg_at_k(pred_ids, gold_ids, k=10):
+    if not gold_ids:
+        return 0.0
     rels = [1 if pid in gold_ids else 0 for pid in pred_ids[:k]]
-    idcg = 1.0  # 단일 정답 가정
-    return (_dcg_at_k(rels, k) / idcg) if idcg > 0 else 0.0
-def _mrr_at_k(pred_ids, gold_ids, k=10):
-    for i, pid in enumerate(pred_ids[:k], start=1):
-        if pid in gold_ids: return 1.0 / i
+    dcg = _dcg_at_k(rels, k)
+    m = min(len(gold_ids), k)
+    ideal_rels = [1] * m + [0] * max(0, k - m)
+    idcg = _dcg_at_k(ideal_rels, k)
+    return (dcg / idcg) if idcg else 0.0
+
+def _mrr_at_k(pred_ids: List[str], gold_ids: List[str], k: int = 10) -> float:
+    """
+    첫 정답의 역순위 평균
+    """
+    gold = set(gold_ids)
+    for i, pid in enumerate(pred_ids[:k], 1):
+        if pid in gold:
+            return 1.0 / i
     return 0.0
-def _recall_at_k(pred_ids, gold_ids, k=10):
-    return 1.0 if any(pid in gold_ids for pid in pred_ids[:k]) else 0.0
-def _p95(values):
-    if not values: return 0.0
-    s = sorted(values); idx = max(0, min(int(math.ceil(0.95*len(s))) - 1, len(s)-1))
-    return s[idx]
-def _load_eval_jsonl(uploaded_file):
+
+def _recall_at_k(pred_ids: List[str], gold_ids: List[str], k: int = 10) -> float:
+    if not gold_ids:
+        return 0.0
+    hit = len(set(pred_ids[:k]).intersection(set(gold_ids)))
+    return hit / float(len(set(gold_ids)))
+
+
+def _p95(values: List[float]) -> float:
+    if not values:
+        return 0.0
+    return float(np.quantile(np.array(values, dtype=float), 0.95))
+
+
+def _load_eval_jsonl(uploaded_file) -> List[Dict[str, Any]]:
+    """
+    업로더 파서: query/question, gold_ids/gold_id 모두 허용
+    - IR용 포맷: {"query": "...", "gold_ids": ["uuid", ...]}
+    - 호환: {"question": "..."} (gold_ids 비어 있으면 지표는 0)
+    """
+    raw = uploaded_file.read()
+    text = raw.decode("utf-8", errors="ignore") if isinstance(raw, (bytes, bytearray)) else str(raw)
     items = []
-    for raw in uploaded_file:
-        line = raw.decode("utf-8") if isinstance(raw,(bytes,bytearray)) else raw
-        if not line.strip(): continue
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
         row = json.loads(line)
-        q = row.get("query"); gold_ids = row.get("gold_ids"); gold_id = row.get("gold_id")
-        if gold_ids is None: gold_ids = [gold_id] if gold_id else []
-        if q: items.append({"query": q, "gold_ids": [g for g in gold_ids if g]})
+        q = row.get("query") or row.get("question")
+        gold_ids = row.get("gold_ids")
+        if gold_ids is None:
+            gid = row.get("gold_id")
+            gold_ids = [gid] if gid else []
+        if q:
+            items.append({"query": q, "gold_ids": [g for g in gold_ids if g]})
     return items
 # ========================================================================
+def _call_search(query: str, topk: int, rerank: bool, cand_factor: float) -> List[Dict[str, Any]]:
+    try:
+        resp = httpx.get(
+            f"{API}/search",
+            params={"q": query, "k": topk, "rerank": str(rerank).lower(), "cand_factor": cand_factor},
+            timeout=120,
+        )
+        resp.raise_for_status()
+        sr = resp.json()
+    except Exception as e:
+        st.error(f"검색 호출 실패: {e}")
+        return []
+    return _safe_get_candidates(sr)
+
+
+def _call_answer(query: str, topk: int, rerank: bool, cand_factor: float, gen_backend: str, gen_model: str) -> Dict[str, Any]:
+    try:
+        resp = httpx.post(
+            f"{API}/answer",
+            json={
+                "query": query,
+                "k": topk,
+                "rerank": rerank,
+                "include_context": True,
+                "gen_backend": gen_backend,
+                "gen_model": gen_model,
+                "cand_factor": cand_factor,
+            },
+            timeout=180,
+        )
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        st.error(f"생성 호출 실패: {e}")
+        return {}
+
+# ---------------------------- UI: 탭 구성 ----------------------------
+st.title("🏗️ 건설 법령 RAG — 검색/생성 & 평가")
+
+tab_search, tab_eval = st.tabs(["🔎 검색 / 생성", "📊 평가 (Eval)"])
+
 
 # =========================== Tabs: 검색 / 평가 ===========================
 tab_search, tab_eval = st.tabs(["검색", "평가(Eval)"])
 
+# ============================ 🔎 검색 / 생성 ============================
 with tab_search:
-    q = st.text_input("질문을 입력하세요", value="발주자의 공사대금 지급보증 의무는?")
-    c1, c2, c3, c4 = st.columns(4)
-    with c1: k = st.number_input("Top-K", min_value=3, max_value=20, value=8, step=1)
-    with c2: rerank = st.checkbox("Rerank 사용", value=True)
-    with c3: backend = st.selectbox("생성 백엔드", ["openai","dummy"], index=1)
-    with c4: model = st.text_input("모델", value="gpt-4o-mini")
+    st.subheader("검색 / 생성 데모")
+    q = st.text_input("질문/검색어를 입력하세요", value="하도급대금 직접지급 요건은?")
+    col1, col2 = st.columns([1, 1])
 
-    if st.button("검색/답변 실행", use_container_width=True):
-        with st.spinner("검색 중..."):
-            sr = httpx.get(
-                f"{API}/search",
-                params={"q": q, "k": k, "rerank": str(rerank).lower(), "cand_factor": cand_factor},
-                timeout=120,
-            ).json()
-        st.subheader("🔎 검색 결과 (상위)")
-        for i, h in enumerate(sr["results"], 1):
-            with st.expander(f"{i}. [{h['law_name']}] {h['clause_id']} — {h.get('title','')[:40]}"):
-                st.write(h["text"])
-
-        with st.spinner("생성 중..."):
-            ar = httpx.post(
-                f"{API}/answer",
-                json={
-                    "query": q, "k": k, "rerank": rerank, "include_context": True,
-                    "gen_backend": backend, "gen_model": model, "cand_factor": cand_factor,
-                },
-                timeout=180,
-            ).json()
-        st.subheader("🧠 답변")
-        st.write(ar["answer"])
-        st.caption("근거 인용: " + ", ".join([f"[{c['law']} {c['clause_id']}]" for c in ar["citations"]]))
-        st.divider()
-        st.subheader("📚 컨텍스트")
-        for i, c in enumerate(ar.get("contexts", []), 1):
-            with st.expander(f"{i}. [{c['law_name']}] {c['clause_id']} — {c.get('title','')[:40]}"):
-                st.write(c["text"])
-
-with tab_eval:
-    st.subheader("RAG 검색 품질/지연 평가")
-    st.caption("eval.jsonl 업로드 → nDCG@10 / MRR@10 / Recall@10 / P95 latency 계산")
-    up = st.file_uploader("평가셋 파일 업로드 (eval.jsonl)", type=["jsonl"])
-    ec1, ec2, ec3 = st.columns(3)
-    with ec1: ek = st.number_input("Top-k", min_value=1, max_value=50, value=10, step=1)
-    with ec2: ererank = st.checkbox("리랭크 사용", value=True)
-    with ec3: warmup = st.number_input("워밍업 쿼리 수", min_value=0, max_value=10, value=2, step=1)
-    if st.button("평가 실행", use_container_width=True):
-        if not up:
-            st.warning("eval.jsonl 파일을 업로드해 주세요.")
-        else:
-            items = _load_eval_jsonl(up)
-            if not items:
-                st.error("유효한 항목이 없습니다. 각 줄은 {'query':..., 'gold_id' 또는 'gold_ids': [...]} 형식이어야 합니다.")
+    with col1:
+        if st.button("검색 실행", use_container_width=True):
+            results = _call_search(q, k, rerank, cand_factor)
+            if not results:
+                st.warning("검색 결과가 없습니다.")
             else:
-                # 워밍업 호출로 지연 안정화
-                for it in items[:int(warmup)]:
-                    try:
-                        httpx.get(f"{API}/search",
-                                  params={"q": it['query'], "k": ek, "rerank": str(ererank).lower(), "cand_factor": cand_factor},
-                                  timeout=60)
-                    except Exception:
-                        pass
-                rows, lats = [], []
-                with st.spinner("평가 중..."):
-                    for it in items:
-                        t0 = time.perf_counter()
-                        r = httpx.get(
-                            f"{API}/search",
-                            params={"q": it['query'], "k": ek, "rerank": str(ererank).lower(), "cand_factor": cand_factor},
-                            timeout=120,
-                        ).json()
-                        ms = (time.perf_counter() - t0) * 1000.0
-                        lats.append(ms)
-                        pred_ids = [h["id"] for h in r.get("results", [])]
-                        rows.append({
-                            "query": it["query"],
-                            "gold_ids": ", ".join(it["gold_ids"]),
-                            f"nDCG@{int(ek)}": _ndcg_at_k(pred_ids, it["gold_ids"], k=int(ek)),
-                            f"MRR@{int(ek)}":  _mrr_at_k(pred_ids, it["gold_ids"], k=int(ek)),
-                            f"Recall@{int(ek)}": _recall_at_k(pred_ids, it["gold_ids"], k=int(ek)),
-                            "latency_ms": ms,
-                            "pred_ids": ", ".join(pred_ids),
-                        })
-                # 요약 메트릭
-                def _avg(xs): return sum(xs)/len(xs) if xs else 0.0
-                df = pd.DataFrame(rows)
-                ndcg_avg = float(_avg(df[f"nDCG@{int(ek)}"].tolist()))
-                mrr_avg  = float(_avg(df[f"MRR@{int(ek)}"].tolist()))
-                rec_avg  = float(_avg(df[f"Recall@{int(ek)}"].tolist()))
-                p95_ms   = float(_p95(lats))
-                avg_ms   = float(_avg(lats))
-                m1,m2,m3,m4,m5 = st.columns(5)
-                m1.metric(f"nDCG@{int(ek)}", f"{ndcg_avg:.4f}")
-                m2.metric(f"MRR@{int(ek)}",  f"{mrr_avg:.4f}")
-                m3.metric(f"Recall@{int(ek)}", f"{rec_avg:.4f}")
-                m4.metric("P95 Latency (ms)", f"{p95_ms:.1f}")
-                m5.metric("Avg Latency (ms)", f"{avg_ms:.1f}")
-                # 상세 테이블 & 지연 차트
-                st.markdown("#### 개별 질의별 결과")
-                st.dataframe(df, use_container_width=True, height=380)
-                st.markdown("#### 지연(밀리초) 분포")
-                st.bar_chart(pd.DataFrame({"latency_ms": df["latency_ms"]}))
+                rows = []
+                for i, r in enumerate(results[:k], 1):
+                    rows.append({
+                        "rank": i,
+                        "id": _extract_id(r),
+                        "score": r.get("score"),
+                        "law_name": r.get("law_name"),
+                        "clause_id": r.get("clause_id"),
+                        "title": r.get("title"),
+                        "text": (r.get("text") or "")[:220] + ("…" if r.get("text") and len(r.get("text")) > 220 else "")
+                    })
+                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    with col2:
+        if st.button("생성 실행(답변)", type="primary", use_container_width=True):
+            ar = _call_answer(q, k, rerank, cand_factor, gen_backend, gen_model)
+            if not ar:
+                st.warning("답변이 없습니다.")
+            else:
+                st.markdown("#### 답변")
+                st.write(ar.get("answer", ""))
+
+                citations = ar.get("citations", [])
+                if citations:
+                    st.markdown("##### 인용(법령/조문)")
+                    st.caption(", ".join([f"[{c.get('law','') or c.get('law_name','')} {c.get('clause_id','')}]" for c in citations]))
+
+                used = ar.get("used_contexts") or ar.get("contexts") or []
+                if used:
+                    st.markdown("##### 사용 컨텍스트(상위 3개)")
+                    for i, c in enumerate(used[:3], 1):
+                        st.write(f"**[{i}]** {(c.get('title') or c.get('clause_id') or '')}")
+                        st.write((c.get("text") or "")[:500])
+
+# ============================ 📊 평가(Eval) ============================
+with tab_eval:
+    st.subheader("IR 품질 평가 (nDCG/MRR/Recall/P95)")
+    st.caption("업로드 포맷: `{'query': '...', 'gold_ids': ['uuid1','uuid2',...]}` (또는 `question`/`gold_id`도 허용)")
+
+    up = st.file_uploader("eval_ids.jsonl 업로드", type=["jsonl"])
+    run = st.button("평가 실행", type="primary")
+
+    if up and run:
+        items = _load_eval_jsonl(up)
+        if not items:
+            st.error("유효한 항목이 없습니다.")
+            st.stop()
+
+        # gold 없는 항목 안내
+        no_gold = [it for it in items if not it.get("gold_ids")]
+        if no_gold:
+            st.info(f"gold_ids가 비어있는 항목 {len(no_gold)}개가 있습니다. 해당 항목은 지표에 반영되지 않거나 0으로 계산될 수 있습니다.")
+
+        # Warmup
+        if warmup > 0:
+            st.write(f"Warmup {warmup}회 진행 중…")
+            for it in items[:warmup]:
+                _ = _call_search(it["query"], k, rerank, cand_factor)
+            st.success("Warmup 완료")
+
+        rows = []
+        n_total = len(items)
+        progress = st.progress(0.0)
+
+        latencies_ms: List[float] = []
+        ndcgs: List[float] = []
+        mrrs: List[float] = []
+        recalls: List[float] = []
+
+        for idx, it in enumerate(items, 1):
+            q = it["query"]
+            gold_ids = it.get("gold_ids", [])
+            t0 = time.perf_counter()
+            results = _call_search(q, k, rerank, cand_factor)
+            t1 = time.perf_counter()
+            elapsed_ms = (t1 - t0) * 1000.0
+
+            pred_ids = []
+            show_rows = []
+            for rnk, rec in enumerate(results[:k], 1):
+                pid = _extract_id(rec)
+                pred_ids.append(pid)
+                show_rows.append({
+                    "rank": rnk,
+                    "id": pid,
+                    "score": rec.get("score"),
+                    "law_name": rec.get("law_name"),
+                    "clause_id": rec.get("clause_id"),
+                    "title": rec.get("title")
+                })
+
+            # 지표
+            ndcg = _ndcg_at_k(pred_ids, gold_ids, k=k) if gold_ids else 0.0
+            mrr_ = _mrr_at_k(pred_ids, gold_ids, k=k) if gold_ids else 0.0
+            rec_ = _recall_at_k(pred_ids, gold_ids, k=k) if gold_ids else 0.0
+
+            latencies_ms.append(elapsed_ms)
+            ndcgs.append(ndcg)
+            mrrs.append(mrr_)
+            recalls.append(rec_)
+
+            rows.append({
+                "query": q,
+                "gold_ids": ", ".join(gold_ids) if gold_ids else "",
+                "pred_ids(topk)": ", ".join([p for p in pred_ids if p]),
+                "nDCG@k": round(ndcg, 4),
+                "MRR@k": round(mrr_, 4),
+                "Recall@k": round(rec_, 4),
+                "latency_ms": round(elapsed_ms, 1)
+            })
+
+            progress.progress(idx / max(1, n_total))
+
+        # 집계
+        mean_ndcg = float(np.mean(ndcgs)) if ndcgs else 0.0
+        mean_mrr = float(np.mean(mrrs)) if mrrs else 0.0
+        mean_recall = float(np.mean(recalls)) if recalls else 0.0
+        p95_lat = _p95(latencies_ms)
+        avg_lat = float(np.mean(latencies_ms)) if latencies_ms else 0.0
+
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("nDCG@k", f"{mean_ndcg:.3f}")
+        c2.metric("MRR@k", f"{mean_mrr:.3f}")
+        c3.metric("Recall@k", f"{mean_recall:.3f}")
+        c4.metric("P95 latency (ms)", f"{p95_lat:.1f}")
+        c5.metric("Avg latency (ms)", f"{avg_lat:.1f}")
+
+        st.divider()
+        st.markdown("#### 질의별 상세")
+        df = pd.DataFrame(rows)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+
+        # CSV 다운로드
+        csv = df.to_csv(index=False).encode("utf-8-sig")
+        st.download_button(
+            "결과 CSV 다운로드",
+            data=csv,
+            file_name="eval_results.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
+
+        st.caption(f"설정 요약: k={k}, rerank={rerank}, cand_factor={cand_factor} → 리랭크 후보 ≈ {int(round(k * max(1.0, cand_factor)))}개")
 
     with st.expander("지표 설명"):
         st.markdown(f"""
