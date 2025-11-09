@@ -1,5 +1,6 @@
 import streamlit as st
-import httpximport json, math, time
+import httpx
+import json, math, time
 import pandas as pd
 
 
