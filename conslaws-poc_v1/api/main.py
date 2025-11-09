@@ -46,7 +46,7 @@ def call_llm(prompt: str, backend: str, model: str) -> str:
             temperature=0.1,
         )
         return resp.choices[0].message.content
-    return "※ 데모용(dummmy): 검색 문맥 기반으로 요약 답변을 제공합니다.\n" + \
+    return "※ 데모용(dummy): 검색 문맥 기반으로 요약 답변을 제공합니다.\n" + \
            "\n".join([line for line in prompt.splitlines()[:10]])
 
 @app.get("/health")

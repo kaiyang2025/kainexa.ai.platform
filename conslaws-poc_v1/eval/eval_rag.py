@@ -75,13 +75,14 @@ def main():
     rerank_flag = str(args.rerank).lower() in ["1","true","yes","y"]
 
     # Retriever 초기화
-    retriever = su.Retriever(
-        opensearch_url=getattr(cfg, "OPENSEARCH_URL", "http://localhost:9200"),
-        index_name=getattr(cfg, "OPENSEARCH_INDEX", "law_clauses"),
-        embed_model_name=getattr(cfg, "EMBED_MODEL", "BAAI/bge-m3"),
-        faiss_dir=str(Path("index")),
-        reranker_name=getattr(cfg, "RERANKER_MODEL", None),
-    )
+    #retriever = su.Retriever(
+    #    opensearch_url=getattr(cfg, "OPENSEARCH_URL", "http://localhost:9200"),
+    #    index_name=getattr(cfg, "OPENSEARCH_INDEX", "law_clauses"),
+    #    embed_model_name=getattr(cfg, "EMBED_MODEL", "BAAI/bge-m3"),
+    #    faiss_dir=str(Path("index")),
+    #    reranker_name=getattr(cfg, "RERANKER_MODEL", None),
+    #)
+    retriever = su.Retriever()
 
     items = load_eval(Path(args.eval))
     if not items:
