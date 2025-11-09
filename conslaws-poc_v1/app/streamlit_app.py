@@ -225,18 +225,40 @@ with tab_search:
         # 최근 검색 결과 표시(생성 버튼을 눌러도 유지)
         results = st.session_state.get("search_results", [])
         if results:
+            
+            # 1위 점수(상대값 계산용). 값이 없을 경우를 대비해 1e-9로 가드
+            topk_results = results[:k]
+            max_fused = max([float(r.get("score") or 0.0) for r in topk_results] + [1e-9])
+            
+            
             rows = []
             for i, r in enumerate(results[:k], 1):
+                
+                fused = float(r.get("score") or 0.0)
+                rel = (fused / max_fused * 100.0) if max_fused > 0 else 0.0
+
+                # 백엔드가 제공하면 표시, 없으면 공란
+                bm25 = r.get("bm25_score") or r.get("_bm25_score") or ""
+                dense = r.get("dense_cosine") or r.get("dense_score") or ""
+                
                 rows.append({
                     "rank": i,
                     "id": _extract_id(r),
-                    "score": r.get("score"),
+                    "fused_score": round(fused, 6),
+                    "relative_%": round(rel, 1),
+                    "bm25_score": bm25,
+                    "dense_cosine": dense,
                     "law_name": r.get("law_name"),
                     "clause_id": r.get("clause_id"),
                     "title": r.get("title"),
                     "text": (r.get("text") or "")[:220] + ("…" if r.get("text") and len(r.get("text")) > 220 else "")
                 })
-            df = pd.DataFrame(rows, columns=["rank","id","score","law_name","clause_id","title","text"])
+            df = pd.DataFrame(
+                rows, 
+                columns=[
+                    "rank","id","fused_score","relative_%","bm25_score","dense_cosine",
+                    "law_name","clause_id","title","text"
+                    ])
             st.dataframe(df, use_container_width=True, hide_index=True)
             meta = st.session_state.get("search_meta", {})
             if meta:
@@ -245,6 +267,12 @@ with tab_search:
                     f"k={meta.get('k')}, rerank={meta.get('rerank')}, cand_factor={meta.get('cand_factor')} "
                     f"→ latency={meta.get('latency_ms', 0.0):.1f} ms"
                 )
+            # 점수 해석 가이드
+            st.caption(
+                "설명: fused_score=RRF 결합 점수(정렬용), "
+                "relative_%=fused_score/1위 점수×100. "
+                "bm25_score/dense_cosine은 백엔드가 제공할 경우 자동 표시됩니다."
+            )
         else:
             st.info("아직 검색 결과가 없습니다. ‘검색 실행’을 눌러주세요.")
 
