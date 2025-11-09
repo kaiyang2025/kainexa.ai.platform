@@ -28,7 +28,8 @@ import httpx
 API_DEFAULT = os.environ.get("API_URL", "http://localhost:8000")
 API = st.secrets.get("API_URL", API_DEFAULT )
 
-st.set_page_config(page_title="건설법령 RAG POC", layout="wide")
+st.set_page_config(page_title="건설 법령 RAG", layout="wide")
+st.title("🏗️ 건설 법령 RAG")
 st.sidebar.markdown("### ⚙️ 설정")
 st.sidebar.write(f"**API**: `{API}`")
 
@@ -165,18 +166,13 @@ def _call_answer(query: str, topk: int, rerank: bool, cand_factor: float, gen_ba
         st.error(f"생성 호출 실패: {e}")
         return {}
 
-# ---------------------------- UI: 탭 구성 ----------------------------
-st.title("🏗️ 건설 법령 RAG — 검색/생성 & 평가")
-
-tab_search, tab_eval = st.tabs(["🔎 검색 / 생성", "📊 평가 (Eval)"])
-
 
 # =========================== Tabs: 검색 / 평가 ===========================
-tab_search, tab_eval = st.tabs(["검색", "평가(Eval)"])
+tab_search, tab_eval = st.tabs(["🔎 검색", "📊 평가"])
 
 # ============================ 🔎 검색 / 생성 ============================
 with tab_search:
-    st.subheader("검색 / 생성 데모")
+    st.subheader("검색")
     q = st.text_input("질문/검색어를 입력하세요", value="하도급대금 직접지급 요건은?")
     col1, col2 = st.columns([1, 1])
 
@@ -222,7 +218,7 @@ with tab_search:
 
 # ============================ 📊 평가(Eval) ============================
 with tab_eval:
-    st.subheader("IR 품질 평가 (nDCG/MRR/Recall/P95)")
+    st.subheader("평가 · IR 지표 (nDCG/MRR/Recall/P95)")
     st.caption("업로드 포맷: `{'query': '...', 'gold_ids': ['uuid1','uuid2',...]}` (또는 `question`/`gold_id`도 허용)")
 
     up = st.file_uploader("eval_ids.jsonl 업로드", type=["jsonl"])
@@ -283,9 +279,10 @@ with tab_eval:
             rec_ = _recall_at_k(pred_ids, gold_ids, k=k) if gold_ids else 0.0
 
             latencies_ms.append(elapsed_ms)
-            ndcgs.append(ndcg)
-            mrrs.append(mrr_)
-            recalls.append(rec_)
+            if gold_ids:
+                ndcgs.append(ndcg)
+                mrrs.append(mrr_)
+                recalls.append(rec_)
 
             rows.append({
                 "query": q,
@@ -329,7 +326,9 @@ with tab_eval:
         )
 
         st.caption(f"설정 요약: k={k}, rerank={rerank}, cand_factor={cand_factor} → 리랭크 후보 ≈ {int(round(k * max(1.0, cand_factor)))}개")
-
+        n_eval = len(ndcgs)
+        st.caption(f"평가 표본: {n_eval}/{n_total} (gold_ids 보유)")
+        
     with st.expander("지표 설명"):
         st.markdown(f"""
 - **nDCG@{int(k)}**: 상위 {int(k)}개 순위에서 정답이 얼마나 위에 배치되었는지(로그 할인). 1.0에 가까울수록 좋음.
