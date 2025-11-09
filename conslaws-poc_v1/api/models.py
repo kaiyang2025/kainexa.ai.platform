@@ -3,11 +3,18 @@ from typing import List, Optional, Dict, Any
 
 class SearchHit(BaseModel):
     id: str
-    law_name: str
-    clause_id: str
-    title: str
-    text: str
+    law_name: Optional[str] = None
+    clause_id: Optional[str] = None
+    title: Optional[str] = None
+    text: Optional[str] = None
+
+    # 정렬에 쓰이는 최종 score (RRF 또는 리랭크 점수)
     score: float
+
+    # ⬇️ 추가: 원점수들 (있으면 내려주고, 없으면 null)
+    bm25_score: Optional[float] = None
+    dense_cosine: Optional[float] = None
+
 
 class SearchResponse(BaseModel):
     query: str
