@@ -259,8 +259,8 @@ with tab_search:
                     # 보기 좋게 고정 포맷
                     "fused_score": f"{fused:.6f}",
                     "relative_%": f"{rel:.1f}",
-                    "bm25_score": (f"{bm25_val:.4f}" if bm25_val is not None else ""),
-                    "dense_cosine": (f"{dense_val:.4f}" if dense_val is not None else ""),
+                    "bm25_score": (f"{bm25_val:.4f}" if bm25_val is not None else "-"),
+                    "dense_cosine": (f"{dense_val:.4f}" if dense_val is not None else "-"),
                     "text": (r.get("text") or "")[:220] + ("…" if r.get("text") and len(r.get("text")) > 220 else "")
                 })
             df = pd.DataFrame(
