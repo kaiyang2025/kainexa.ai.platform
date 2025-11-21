@@ -280,8 +280,9 @@ with tab_search:
                 )
             # 점수 해석 가이드
             st.caption(
-                "설명: fused_score=RRF 결합 점수(정렬용), relative_%=1위 대비 상대값. "
-                "bm25_score/dense_cosine은 백엔드가 제공할 때만 표시됩니다."
+                 "설명: fused_score=BM25/Dense 결합 점수(정렬용, 백엔드 설정에 따라 RRF 또는 weighted), "
+                 "relative_%=1위 대비 상대값. "
+                 "bm25_score/dense_cosine은 백엔드가 제공할 때만 표시됩니다."
             )
         else:
             st.info("아직 검색 결과가 없습니다. ‘검색 실행’을 눌러주세요.")

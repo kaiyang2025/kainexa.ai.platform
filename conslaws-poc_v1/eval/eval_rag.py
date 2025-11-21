@@ -58,41 +58,14 @@ def p95(values):
     idx = max(0, min(idx, len(values)-1))
     return values[idx]
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--eval", type=str, required=True, help="평가셋 jsonl 경로")
-    parser.add_argument("--k", type=int, default=10, help="Top-k")
-    parser.add_argument("--rerank", type=str, default="true", help="리랭크 사용 여부(true/false)")
-    parser.add_argument("--warmup", type=int, default=2, help="워밍업 질의 수(지연 안정용)")
-    args = parser.parse_args()
-
-    # 프로젝트 모듈 로드
-    sys.path.insert(0, os.getcwd())
-    import importlib
-    cfg = importlib.import_module("config")
-    su = importlib.import_module("search_utils")
-
-    rerank_flag = str(args.rerank).lower() in ["1","true","yes","y"]
-
-    # Retriever 초기화
-    #retriever = su.Retriever(
-    #    opensearch_url=getattr(cfg, "OPENSEARCH_URL", "http://localhost:9200"),
-    #    index_name=getattr(cfg, "OPENSEARCH_INDEX", "law_clauses"),
-    #    embed_model_name=getattr(cfg, "EMBED_MODEL", "BAAI/bge-m3"),
-    #    faiss_dir=str(Path("index")),
-    #    reranker_name=getattr(cfg, "RERANKER_MODEL", None),
-    #)
-    retriever = su.Retriever()
-
-    items = load_eval(Path(args.eval))
-    if not items:
-        print("No eval items.")
-        return
-
+def run_eval(items, retriever, k: int, rerank_flag: bool, warmup: int, label: str):
+    """
+    주어진 rerank 설정으로 한 번 평가를 수행하고 결과를 출력한다.
+    """
     # 워밍업(지연 안정화)
-    for it in items[:args.warmup]:
+    for it in items[:warmup]:
         try:
-            retriever.search(it["query"], rerank=rerank_flag, k=args.k)
+            retriever.search(it["query"], rerank=rerank_flag, k=k)
         except Exception:
             pass
 
@@ -103,26 +76,112 @@ def main():
         gold_ids = it["gold_ids"]
 
         t0 = time.perf_counter()
-        results = retriever.search(q, rerank=rerank_flag, k=args.k)
+        results = retriever.search(q, rerank=rerank_flag, k=k)
         dt = (time.perf_counter() - t0) * 1000.0  # ms
         latencies.append(dt)
 
         pred_ids = [r["id"] for r in results]
-        ndcgs.append(ndcg_at_k(pred_ids, gold_ids, k=args.k))
-        mrrs.append(mrr_at_k(pred_ids, gold_ids, k=args.k))
-        recalls.append(recall_at_k(pred_ids, gold_ids, k=args.k))
+        ndcgs.append(ndcg_at_k(pred_ids, gold_ids, k=k))
+        mrrs.append(mrr_at_k(pred_ids, gold_ids, k=k))
+        recalls.append(recall_at_k(pred_ids, gold_ids, k=k))
 
     def avg(xs): return sum(xs)/len(xs) if xs else 0.0
 
-    print("\n=== Metrics ===")
+    print(f"\n=== {label} ===")
     print(f"Samples        : {len(items)}")
-    print(f"Top-k          : {args.k}")
+    print(f"Top-k          : {k}")
     print(f"Rerank         : {rerank_flag}")
-    print(f"nDCG@{args.k:>2}      : {avg(ndcgs):.4f}")
-    print(f"MRR@{args.k:>2}       : {avg(mrrs):.4f}")
-    print(f"Recall@{args.k:>2}    : {avg(recalls):.4f}")
+    print(f"nDCG@{k:>2}      : {avg(ndcgs):.4f}")
+    print(f"MRR@{k:>2}       : {avg(mrrs):.4f}")
+    print(f"Recall@{k:>2}    : {avg(recalls):.4f}")
     print(f"P95 latency(ms): {p95(latencies):.1f}")
     print(f"Avg latency(ms): {avg(latencies):.1f}")
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--eval", type=str, required=True, help="평가셋 jsonl 경로")
+    parser.add_argument("--k", type=int, default=10, help="Top-k")
+    parser.add_argument("--warmup", type=int, default=2, help="워밍업 질의 수(지연 안정용)")
+    parser.add_argument(
+        "--mode",
+        type=str,
+        default="both",
+        choices=["light", "full", "both", "single"],
+        help="light: CE OFF, full: CE ON, both: 둘 다, single: --rerank 플래그 그대로 사용",
+    )
+    parser.add_argument(
+        "--rerank",
+        type=str,
+        default="true",
+        help="리랭크 사용 여부(true/false, --mode=single일 때만 사용)",
+    )
+    args = parser.parse_args()
+
+    # 프로젝트 모듈 로드
+    sys.path.insert(0, os.getcwd())
+    import importlib
+    cfg = importlib.import_module("config")
+    su = importlib.import_module("search_utils")
+
+    # Retriever 초기화 (기본 설정 사용)
+    # 필요 시 cfg를 참고해 명시적으로 초기화할 수도 있음
+    retriever = su.Retriever()
+
+    items = load_eval(Path(args.eval))
+    if not items:
+        print("No eval items.")
+        return
+
+    # 실행 모드에 따라 평가
+    mode = args.mode.lower()
+    if mode == "both":
+        # 라이트 모드: BM25 + Dense, CE OFF
+        run_eval(
+            items,
+            retriever,
+            k=args.k,
+            rerank_flag=False,
+            warmup=args.warmup,
+            label="라이트 모드 평가 (BM25 + Dense, CE OFF)",
+        )
+        # 풀 모드: CE ON
+        run_eval(
+            items,
+            retriever,
+            k=args.k,
+            rerank_flag=True,
+            warmup=args.warmup,
+            label="풀 모드 평가 (CE ON)",
+        )
+    elif mode == "light":
+        run_eval(
+            items,
+            retriever,
+            k=args.k,
+            rerank_flag=False,
+            warmup=args.warmup,
+            label="라이트 모드 평가 (BM25 + Dense, CE OFF)",
+        )
+    elif mode == "full":
+        run_eval(
+            items,
+            retriever,
+            k=args.k,
+            rerank_flag=True,
+            warmup=args.warmup,
+            label="풀 모드 평가 (CE ON)",
+        )
+    else:  # single
+        rerank_flag = str(args.rerank).lower() in ["1", "true", "yes", "y"]
+        run_eval(
+            items,
+            retriever,
+            k=args.k,
+            rerank_flag=rerank_flag,
+            warmup=args.warmup,
+            label=f"단일 모드 평가 (rerank={rerank_flag})",
+        )
 
 if __name__ == "__main__":
     main()
