@@ -20,10 +20,12 @@ from sentence_transformers import SentenceTransformer, CrossEncoder
 
 from .config import (
     OPENSEARCH_URL, OPENSEARCH_INDEX,
-    EMBED_MODEL, RERANK_MODEL,
-    BM25_K, DENSE_K, FINAL_K, RERANK_CAND_FACTOR,
-    LAMBDA_BM25,
-    LAMBDA_DENSE,
+    EMBED_MODEL, RERANK_MODEL,    
+    BM25_K, DENSE_K, FINAL_K,
+    RERANK_CAND_FACTOR,
+    LAMBDA_BM25, LAMBDA_DENSE,
+    SEARCH_METHOD, USE_RERANK,
+    
 )
 
 # 경로 상수
@@ -57,10 +59,8 @@ class Retriever:
         self.client = OpenSearch(self.opensearch_url, timeout=60)
         
         
-         # ---- 임베딩/FAISS ----        
-        #elf.embedder = SentenceTransformer(EMBED_MODEL)
-        self.embedder = SentenceTransformer(self.embed_model_name)        
-        #self.index = faiss.read_index(str(INDEX_DIR / "faiss.index"))
+        # ---- 임베딩/FAISS ----  
+        self.embedder = SentenceTransformer(self.embed_model_name)
         base = pathlib.Path(faiss_dir) if faiss_dir else INDEX_DIR
         faiss_path = base / "faiss.index"
         meta_path = base / "meta.json"
@@ -86,13 +86,7 @@ class Retriever:
                 r = json.loads(line)
                 self.docs[r["id"]] = r
         
-        #self.docs = {}
-        #with open(DOCS_PATH, "r", encoding="utf-8") as f:
-        #    for line in f:
-        #        r = json.loads(line)
-        #        self.docs[r["id"]] = r
-        #self._reranker = None
-        
+       
          # ---- 리랭커 (지연 로드) ----
         self._reranker: Optional[CrossEncoder] = None
         self._reranker_name = reranker_name or RERANK_MODEL
@@ -255,18 +249,23 @@ class Retriever:
         *,
         rerank: bool = True,
         k: int = FINAL_K,
-        method: str = "rrf",           # "rrf" | "weighted"
-        alpha: Optional[float] = None, # weighted일 때 bm25 비중(0~1)
-        cand_factor: float = RERANK_CAND_FACTOR,
+        method: Optional[str] = None,          # "rrf" | "weighted" | None(환경설정 기본값)
+        alpha: Optional[float] = None,         # weighted일 때 bm25 비중(0~1)
+        cand_factor: Optional[float] = None,   # None이면 RERANK_CAND_FACTOR 사용
     ) -> List[Dict[str, Any]]:
         """
         하이브리드 검색.
         1) BM25/Dense를 충분히 크게 가져온 뒤(cand_factor*k 이상),
-        2) 결합(RRF 기본),
+        2) 결합(기본: config.SEARCH_METHOD),
         3) (선택) CrossEncoder 리랭크 후 Top-k 반환.
         """
-        # 후보 수 결정
-        req_n = max(1, int(round(k * max(1.0, cand_factor))))
+        # cand_factor 기본값 보정
+        if cand_factor is None:
+            cand_factor = RERANK_CAND_FACTOR
+
+        # 후보 수 결정 (BM25/Dense 개별 k는 최소 BM25_K/DENSE_K 이상)
+        req_n = max(1, int(round(k * max(1.0, cand_factor))))        
+        
         bm25_k = max(BM25_K, req_n)
         dense_k = max(DENSE_K, req_n)
 
@@ -277,25 +276,28 @@ class Retriever:
         # 추가: 원점수 맵(id -> score) 구성
         bm25_map = {h["id"]: float(h.get("score", 0.0)) for h in bm25 if h.get("id")}
         dense_map = {h["id"]: float(h.get("score", 0.0)) for h in dense if h.get("id")}
-
-        # 2) 결합
-        method = (method or "rrf").lower()
+               
+        # 2) 결합 방식 결정
+        #   - 인자 > 환경변수 > 기본 "rrf"
+        method = (method or SEARCH_METHOD or "rrf").lower()
+        
         if method.startswith("weight"):
             a = LAMBDA_BM25 if alpha is None else alpha
             try:
                 a = float(a)
             except Exception:
-                a = 0.5
+                a = 0.5                
             a = max(0.0, min(1.0, a))
             fused = self._weighted_fuse(bm25, dense, k=k, alpha=a, cand_factor=cand_factor)
         else:
             fused = self._rrf_fuse(bm25, dense, k=k, cand_factor=cand_factor)
-        
+                
         # 3) 병합(문서필드 + 원점수 주입)
         merged = self._merge(fused, bm25_map=bm25_map, dense_map=dense_map)
 
         # 3) 리랭크
-        if rerank and self.reranker is not None:
+        do_rerank = bool(rerank and USE_RERANK and self.reranker is not None)
+        if do_rerank:                   
             # CrossEncoder는 쿼리-문서 쌍 점수↑
             pairs = [(q, h["text"] or "") for h in merged]
             scores = self.reranker.predict(pairs)
