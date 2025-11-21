@@ -1,7 +1,7 @@
 import re, json, uuid, pathlib
 
 DATA_DIR = pathlib.Path(__file__).resolve().parents[1] / "data_raw"
-OUT_PATH = pathlib.Path(__file__).resolve().parents[1] / "data_proc" / "docs.jsonl"
+OUT_PATH = pathlib.Path(__file__).resolve().parents[1] / "data_proc" / "law_clauses.jsonl"
 
 LAW_META = {
     "건설산업기본법": {"effective_date": "2025-08-28"},
