@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Technology - Kainexa AI</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        /* 상세 페이지 전용 추가 스타일 */
+        .page-header {
+            padding-top: 150px;
+            padding-bottom: 80px;
+            text-align: center;
+        }
+
+        .page-header h1 {
+            font-size: 3.5rem;
+            background: linear-gradient(135deg, #fff 0%, #00F0FF 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 1rem;
+        }
+
+        .page-header p {
+            font-size: 1.2rem;
+            color: #aaa;
+            max-width: 700px;
+            margin: 0 auto;
+        }
+
+        .content-container {
+            max-width: 900px;
+            margin: 0 auto 100px auto;
+            background: rgba(10, 10, 10, 0.8); /* 본문 배경을 좀 더 어둡게 */
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            padding: 60px;
+            backdrop-filter: blur(20px);
+            box-shadow: 0 0 50px rgba(0,0,0,0.5);
+            position: relative;
+            z-index: 2;
+        }
+
+        .tech-section {
+            margin-bottom: 60px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            padding-bottom: 40px;
+        }
+
+        .tech-section:last-child {
+            border-bottom: none;
+        }
+
+        .tech-section h2 {
+            font-size: 2rem;
+            color: #fff;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .tech-section h2::before {
+            content: '';
+            display: block;
+            width: 4px;
+            height: 24px;
+            background: #00F0FF;
+        }
+
+        .tech-section p {
+            font-size: 1.1rem;
+            color: #ccc;
+            line-height: 1.8;
+            margin-bottom: 20px;
+        }
+
+        /* [수정됨] 높이(height) 값 추가 및 중앙 정렬 */
+        .diagram-box {
+            position: relative;
+            width: 100%;        /* 너비 꽉 차게 */
+            height: 320px;      /* ★핵심: 높이를 지정해야 내용이 보입니다 */
+            overflow: hidden;   /* 선이 밖으로 나가는 것 방지 */
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(0, 240, 255, 0.1);
+            border-radius: 12px; /* 모서리 둥글게 */
+            margin: 30px 0;      /* 위아래 여백 */
+            
+            /* 내용물 중앙 정렬 (2번째 다이어그램을 위해 필요) */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* 중앙 노드 (Main Concept) */
+        .node-center {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 60px;
+            height: 60px;
+            background: rgba(0, 240, 255, 0.1);
+            border: 2px solid #00F0FF;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #00F0FF;
+            font-weight: bold;
+            font-size: 0.8rem;
+            box-shadow: 0 0 20px rgba(0, 240, 255, 0.4);
+            z-index: 2;
+        }
+
+        /* 주변 노드들 */
+        .node-sat {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            background: #111;
+            border: 1px solid #888;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #888;
+            font-size: 0.7rem;
+            z-index: 2;
+            transition: all 0.3s ease;
+        }
+
+        /* 연결선 (Lines) */
+        .line {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            height: 1px;
+            background: linear-gradient(90deg, #00F0FF 0%, transparent 100%);
+            transform-origin: 0 0; /* 중앙에서 뻗어나가도록 */
+            z-index: 1;
+        }
+
+        /* 애니메이션 효과: 맥락(Context)이 연결되는 느낌 */
+        .pulse-ring {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 100%;
+            height: 100%;
+            border: 1px solid rgba(0, 240, 255, 0.3);
+            border-radius: 50%;
+            animation: ripple 2s infinite;
+            opacity: 0;
+        }
+
+        @keyframes ripple {
+            0% { width: 0; height: 0; opacity: 1; }
+            100% { width: 200px; height: 200px; opacity: 0; }
+        }
+
+        /* Hover 효과: 마우스 올리면 주변 노드가 활성화됨 */
+        .diagram-box:hover .node-sat {
+            border-color: #00F0FF;
+            color: #fff;
+            box-shadow: 0 0 10px rgba(0, 240, 255, 0.3);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="network-canvas"></canvas>
+
+    <nav>
+        <a href="index.html" class="logo">KAINEXA AI</a>
+        <ul class="nav-links">
+            <li><a href="index.html">Platform</a></li>
+            <li><a href="solutions.html">Solutions</a></li>
+            <li><a href="technology.html" style="color:#fff;">Technology</a></li> 
+            <li><a href="#">Company</a></li>
+        </ul>
+        <a href="#" class="nav-cta">Start Now</a>
+    </nav>
+
+    <div class="page-header reveal">
+        <h1>The Architecture of Intelligence</h1>
+        <p>Kainexa AI는 단순한 검색을 넘어, 인간 전문가의 사고 과정을 모방하는<br>Graph RAG 및 Multi-Agent 시스템을 구축합니다.</p>
+    </div>
+
+    <div class="content-container reveal">
+        
+        <div class="tech-section">
+            <h2>01. Knowledge Graph RAG</h2>
+            <p>
+                기존의 RAG(Retrieval-Augmented Generation)는 문서를 단순히 텍스트 조각(Chunk)으로 나누어 벡터 유사도만으로 검색합니다. 이 방식은 "A법령이 B법령에 의해 예외 적용을 받는다"와 같은 <strong>복잡한 관계성</strong>을 놓치기 쉽습니다.
+            </p>
+            <div class="diagram-box">
+                <div class="node-center">Query</div>
+                
+                <div class="pulse-ring"></div>
+
+                <div class="line" style="width: 100px; transform: rotate(0deg);"></div>
+                <div class="line" style="width: 100px; transform: rotate(72deg);"></div>
+                <div class="line" style="width: 100px; transform: rotate(144deg);"></div>
+                <div class="line" style="width: 100px; transform: rotate(216deg);"></div>
+                <div class="line" style="width: 100px; transform: rotate(288deg);"></div>
+
+                <div class="node-sat" style="top: 20%; left: 80%;">Law</div>
+                <div class="node-sat" style="top: 80%; left: 80%;">Rule</div>
+                <div class="node-sat" style="top: 80%; left: 20%;">Fact</div>
+                <div class="node-sat" style="top: 20%; left: 20%;">Case</div>
+                <div class="node-sat" style="top: 10%; left: 50%;">Code</div>
+            </div>
+            <p>
+                Kainexa의 Graph RAG 엔진은 문서를 <strong>노드(Node)와 엣지(Edge)</strong>로 구조화된 지식 그래프로 변환합니다. 질문이 들어오면 키워드 매칭이 아니라, 그래프 네트워크를 순회하며 논리적으로 연결된 모든 문맥을 추적합니다. 이를 통해 할루시네이션을 원천적으로 차단합니다.
+            </p>
+        </div>
+
+        <div class="tech-section">
+            <h2>02. Domain Ontology</h2>
+            <p>
+                AI가 전문가처럼 사고하려면 그 분야의 '언어'를 이해해야 합니다. 우리는 건설, 법률, 헬스케어 등 각 도메인에 특화된 <strong>온톨로지(Ontology)</strong>를 미리 정의합니다.
+            </p>
+            <p>
+                예를 들어, 건설 도메인에서 "지하층"이라는 단어는 건축법과 소방시설법에서 서로 다른 기준을 가집니다. Kainexa AI는 이러한 미묘한 의미 차이를 온톨로지 레이어에서 명확히 구분하여 처리합니다.
+            </p>
+        </div>
+
+        <div class="tech-section">
+            <h2>03. Multi-Agent Orchestration</h2>
+            <p>
+                하나의 거대 모델이 모든 일을 처리하는 것은 비효율적입니다. Kainexa Platform은 기획자(Planner), 조사관(Researcher), 비평가(Critic) 등 <strong>역할이 분담된 AI 에이전트</strong>들이 협업합니다.
+            </p>
+            <div class="diagram-box">
+                <div style="display:flex; gap:20px; align-items:center; z-index:2;">
+                    <div style="text-align:center;">
+                        <div class="node-center" style="position:relative; transform:none; left:auto; top:auto; width:50px; height:50px;">Plan</div>
+                    </div>
+                    
+                    <div style="color:#555;">➔</div>
+
+                    <div style="text-align:center;">
+                        <div class="node-sat" style="position:relative; width:50px; height:50px; border-color:#fff;">Search</div>
+                    </div>
+
+                    <div style="color:#555;">➔</div>
+
+                    <div style="text-align:center;">
+                        <div class="node-sat" style="position:relative; width:50px; height:50px; border-color:#00F0FF; color:#00F0FF;">Critic</div>
+                    </div>
+                </div>
+                
+                <div class="pulse-ring" style="animation-duration: 3s;"></div>
+            </div>
+            <p>
+                사용자의 복잡한 질문은 Planner에 의해 세부 작업으로 쪼개지고, 각 에이전트가 병렬로 작업을 수행한 뒤, Critic 에이전트가 최종 검증을 거쳐 답변을 생성합니다. 이 과정은 투명하게 공개됩니다.
+            </p>
+        </div>
+
+    </div>
+
+    <footer>
+        <h3 class="logo" style="justify-content: center; margin-bottom: 1rem;">KAINEXA AI</h3>
+        <p>Seoul, Republic of Korea | Contact: founder@kainexa.ai</p>
+        <p style="margin-top: 1rem; opacity: 0.5;">&copy; 2025 Kainexa AI. All rights reserved.</p>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>

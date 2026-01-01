@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solutions - Kainexa AI</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        /* Solutions 페이지 전용 스타일 */
+        .split-container {
+            display: flex;
+            flex-direction: column;
+            gap: 100px;
+            margin-top: 100px;
+            margin-bottom: 100px;
+            max-width: 1200px;
+            margin-left: auto;
+            margin-right: auto;
+            padding: 0 20px;
+        }
+
+        .solution-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 60px;
+        }
+
+        /* 짝수 번째 행은 이미지와 글 순서를 바꿈 (지그재그 배치) */
+        .solution-row.reverse {
+            flex-direction: row-reverse;
+        }
+
+        .solution-text {
+            flex: 1;
+        }
+
+        .solution-label {
+            color: #00F0FF;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            margin-bottom: 1rem;
+            display: inline-block;
+            border-bottom: 1px solid rgba(0, 240, 255, 0.3);
+            padding-bottom: 5px;
+        }
+
+        .solution-text h2 {
+            font-size: 2.5rem;
+            color: #fff;
+            margin-bottom: 1.5rem;
+            line-height: 1.2;
+        }
+
+        .solution-text p {
+            font-size: 1.1rem;
+            color: #aaa;
+            line-height: 1.7;
+            margin-bottom: 2rem;
+        }
+
+        .feature-list li {
+            color: #ccc;
+            margin-bottom: 0.8rem;
+            list-style: none;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .feature-list li::before {
+            content: '▹';
+            color: #00F0FF;
+        }
+
+        /* 솔루션 이미지 영역 (카드 형태) */
+        .solution-image {
+            flex: 1;
+            height: 400px;
+            background: rgba(20, 20, 20, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            backdrop-filter: blur(10px);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* 이미지 안의 데코레이션 (추상적 그리드) */
+        .grid-bg {
+            position: absolute;
+            width: 200%;
+            height: 200%;
+            background-image: 
+                linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+            background-size: 40px 40px;
+            transform: perspective(500px) rotateX(60deg);
+            top: -50%;
+        }
+
+        @media (max-width: 768px) {
+            .solution-row, .solution-row.reverse {
+                flex-direction: column;
+            }
+            .solution-image { width: 100%; height: 300px; }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="network-canvas"></canvas>
+
+    <nav>
+        <a href="index.html" class="logo">KAINEXA AI</a>
+        <ul class="nav-links">
+            <li><a href="index.html">Platform</a></li>
+            <li><a href="solutions.html" style="color:#fff;">Solutions</a></li> <li><a href="technology.html">Technology</a></li>
+            <li><a href="#">Company</a></li>
+        </ul>
+        <a href="#" class="nav-cta">Start Now</a>
+    </nav>
+
+    <div class="split-container">
+        
+        <div class="solution-row reveal">
+            <div class="solution-text">
+                <span class="solution-label">INDUSTRY 01: CONSTRUCTION</span>
+                <h2>Automated Compliance for<br>Built Environments</h2>
+                <p>
+                    건설 프로젝트의 지연 원인 1위는 '인허가 및 규제 검토'입니다. 
+                    Kainexa의 AI 에이전트는 수천 개의 건축 법령과 조례를 실시간으로 분석하여, 
+                    설계 단계에서 법규 위반 리스크를 0%로 만듭니다.
+                </p>
+                <ul class="feature-list">
+                    <li>강원대학교 협력: 법령 특화 LLM 모델링</li>
+                    <li>복잡한 인허가 규정 실시간 적합성 평가</li>
+                    <li>설계 변경에 따른 법적 영향 자동 시뮬레이션</li>
+                </ul>
+            </div>
+            <div class="solution-image">
+                <div class="grid-bg"></div>
+                <h3 style="color:#00F0FF; font-size: 2rem; z-index:1; text-align:center;">
+                    Legal<br>Digital Twin
+                </h3>
+            </div>
+        </div>
+
+        <div class="solution-row reverse reveal">
+            <div class="solution-text">
+                <span class="solution-label">INDUSTRY 02: HEALTHCARE</span>
+                <h2>Clinical Intelligence<br>Beyond Human Limits</h2>
+                <p>
+                    의료 데이터는 파편화되어 있고 비정형적입니다. 
+                    Kainexa는 의학 논문, 임상 기록, 유전체 데이터를 <strong>지식 그래프</strong>로 연결합니다. 
+                    의료진이 놓칠 수 있는 희귀 질환의 연관성을 찾아내고 진단을 보조합니다.
+                </p>
+                <ul class="feature-list">
+                    <li>FHIR / SNOMED CT 표준 기반 데이터 통합</li>
+                    <li>증상-진단-처방 인과관계 추론 그래프</li>
+                    <li>개인 맞춤형 정밀 의료(Precision Medicine) 지원</li>
+                </ul>
+            </div>
+            <div class="solution-image">
+                <div class="grid-bg" style="background-size: 20px 20px; opacity:0.3;"></div>
+                <h3 style="color:#00F0FF; font-size: 2rem; z-index:1; text-align:center;">
+                    Bio-Medical<br>Graph
+                </h3>
+            </div>
+        </div>
+
+    </div>
+
+    <footer>
+        <h3 class="logo" style="justify-content: center; margin-bottom: 1rem;">KAINEXA AI</h3>
+        <p>Seoul, Republic of Korea | Contact: founder@kainexa.ai</p>
+        <p style="margin-top: 1rem; opacity: 0.5;">&copy; 2025 Kainexa AI. All rights reserved.</p>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>

@@ -1,0 +1,452 @@
+ /* --- 1. 기본 설정 (Reset & Body) --- */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: #050505;
+            color: #ffffff;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            overflow-x: hidden;
+        }
+
+        /* --- 2. 배경 및 레이아웃 (Layout) --- */
+        #network-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+        }
+
+        .hero-content {
+            position: relative;
+            z-index: 1;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            background: radial-gradient(circle at center, transparent 0%, #050505 120%);
+            padding: 0 20px; /* 모바일에서 좌우 여백 확보 */
+        }
+
+        /* --- 3. 타이포그래피 (Typography) --- */
+        h1 {
+            font-size: 4rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            margin-bottom: 0; /* delayed-content의 gap으로 간격 조절하므로 margin 제거 */
+            background: linear-gradient(135deg, #ffffff 0%, #a5a5a5 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            min-height: 1.2em; /* 타이핑 전에도 높이 확보하여 레이아웃 흔들림 방지 */
+        }
+
+        /* 모바일 폰트 크기 조정 */
+        @media (max-width: 768px) {
+            h1 { font-size: 2.5rem; }
+        }
+
+        /* --- 4. 콘텐츠 컨테이너 (레이아웃 핵심 수정 반영) --- */
+        #delayed-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 40px; /* 텍스트와 버튼 사이 간격 고정 */
+            
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 1s ease, transform 1s ease;
+            margin-top: 20px;
+        }
+
+        #delayed-content.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        #delayed-content p {
+            font-size: 1.25rem;
+            color: #ccc;
+            max-width: 800px;
+            line-height: 1.6;
+            margin: 0;
+        }
+
+        /* --- 5. 버튼 스타일 (Button) --- */
+        .btn {
+            margin-top: 0; /* gap으로 처리하므로 마진 0 */
+            padding: 1rem 2.5rem;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #fff;
+            text-decoration: none;
+            border-radius: 4px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(5px);
+        }
+
+        .btn:hover {
+            background: rgba(0, 240, 255, 0.2);
+            border-color: rgba(0, 240, 255, 0.5);
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.3);
+        }
+
+        /* --- 6. 네비게이션 바 (Navigation) --- */
+        nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 4rem;
+            z-index: 1000;
+            background: rgba(5, 5, 5, 0.6);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: 700;
+            letter-spacing: -0.05em;
+            color: #fff;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .logo::before {
+            content: '';
+            display: block;
+            width: 8px;
+            height: 8px;
+            background-color: #00F0FF;
+            border-radius: 50%;
+            box-shadow: 0 0 10px #00F0FF;
+        }
+
+        .nav-links {
+            display: flex;
+            list-style: none;
+            gap: 2.5rem;
+        }
+
+        .nav-links li a {
+            text-decoration: none;
+            color: #888;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: color 0.3s ease;
+            position: relative;
+        }
+
+        .nav-links li a:hover {
+            color: #fff;
+        }
+
+        .nav-links li a::after {
+            content: '';
+            position: absolute;
+            width: 0%;
+            height: 2px;
+            bottom: -5px;
+            left: 0;
+            background-color: #00F0FF;
+            transition: width 0.3s ease;
+        }
+
+        .nav-links li a:hover::after {
+            width: 100%;
+        }
+
+        .nav-cta {
+            padding: 0.6rem 1.2rem;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #fff;
+            text-decoration: none;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .nav-cta:hover {
+            background: rgba(0, 240, 255, 0.15);
+            border-color: #00F0FF;
+            color: #00F0FF;
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.2);
+        }
+
+        @media (max-width: 768px) {
+            nav { padding: 1rem 1.5rem; }
+            .nav-links { display: none; }
+        }
+
+        /* --- 7. 애니메이션 효과 (Cursor) --- */
+        .cursor {
+            display: inline-block;
+            width: 4px;
+            height: 1em;
+            background-color: #00F0FF;
+            margin-left: 8px;
+            vertical-align: bottom;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+        /* =========================================
+           [Step 2 추가] 메인 콘텐츠 섹션 스타일
+           ========================================= */
+        
+        /* 공통 섹션 레이아웃 */
+        .section {
+            padding: 120px 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+            position: relative;
+            z-index: 2; /* 배경 캔버스 위에 위치 */
+        }
+
+        .section-title {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 3rem;
+            background: linear-gradient(to right, #fff, #888);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-align: center;
+        }
+
+        /* --- Bento Grid (기술 소개) --- */
+        .bento-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr); /* 3열 그리드 */
+            gap: 20px;
+        }
+
+        .card {
+            background: rgba(20, 20, 20, 0.6); /* 반투명 다크 그레이 */
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 2rem;
+            backdrop-filter: blur(10px);
+            transition: transform 0.3s ease, border-color 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px); /* 호버 시 살짝 위로 */
+            border-color: rgba(0, 240, 255, 0.5); /* Cyan 색 테두리 */
+        }
+
+        .card h3 {
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            color: #fff;
+        }
+
+        .card p {
+            font-size: 1rem;
+            color: #aaa;
+            line-height: 1.6;
+        }
+
+        /* 큰 카드는 2칸 차지하게 (강조용) */
+        .card.large {
+            grid-column: span 2; 
+        }
+
+        /* --- Project Showcase (건설 법령) --- */
+        .showcase-container {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 50px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            padding: 3rem;
+        }
+
+        .showcase-text {
+            flex: 1;
+        }
+
+        .showcase-text h2 {
+            font-size: 2rem;
+            margin-bottom: 1rem;
+            color: #fff;
+        }
+
+        .showcase-text .highlight {
+            color: #00F0FF; /* 포인트 컬러 */
+            font-weight: 700;
+        }
+
+        .showcase-visual {
+            flex: 1;
+            height: 300px;
+            background: radial-gradient(circle, rgba(0,240,255,0.1) 0%, rgba(0,0,0,0) 70%);
+            border: 1px dashed rgba(255,255,255,0.2);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #555;
+            font-family: monospace;
+        }
+
+        /* --- Footer --- */
+        footer {
+            padding: 4rem 2rem;
+            text-align: center;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            margin-top: 5rem;
+            position: relative;
+            z-index: 2;
+        }
+        
+        footer p {
+            color: #555;
+            font-size: 0.9rem;
+        }
+
+        /* --- Scroll Animation (스크롤 시 등장 효과) --- */
+        .reveal {
+            opacity: 0;
+            transform: translateY(30px);
+            transition: all 1s ease;
+        }
+
+        .reveal.active {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* 모바일 대응 */
+        @media (max-width: 768px) {
+            .bento-grid { grid-template-columns: 1fr; } /* 모바일은 1열 */
+            .card.large { grid-column: span 1; }
+            .showcase-container { flex-direction: column; }
+        }
+        /* =========================================
+   [Case Study] Digital Scanner Animation
+   ========================================= */
+
+/* 컨테이너 설정 */
+.showcase-visual {
+    position: relative;
+    overflow: hidden; /* 내부 요소가 밖으로 나가는 것 방지 */
+    background: rgba(10, 20, 30, 0.6); /* 깊은 남색 배경 */
+}
+
+/* 1. 설계도면 그리드 배경 */
+.blueprint-grid {
+    position: absolute;
+    width: 200%;
+    height: 200%;
+    background-image: 
+        linear-gradient(rgba(0, 240, 255, 0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 240, 255, 0.05) 1px, transparent 1px);
+    background-size: 40px 40px;
+    transform: perspective(500px) rotateX(60deg) translateY(-100px); /* 3D 원근감 */
+    animation: grid-move 10s linear infinite;
+}
+
+@keyframes grid-move {
+    0% { transform: perspective(500px) rotateX(60deg) translateY(0); }
+    100% { transform: perspective(500px) rotateX(60deg) translateY(40px); }
+}
+
+/* 2. 건물 블록 스타일 */
+.building-structure {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -40%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+}
+
+.block {
+    border: 1px solid rgba(0, 240, 255, 0.3);
+    background: rgba(0, 240, 255, 0.05);
+    box-shadow: 0 0 15px rgba(0, 240, 255, 0.1);
+}
+
+.b1 { width: 40px; height: 60px; } /* 상단 */
+.b2 { width: 80px; height: 50px; } /* 중단 */
+.b3 { width: 120px; height: 40px; } /* 하단 */
+
+/* 3. 스캔 라인 (레이저) */
+.scanner-line {
+    position: absolute;
+    width: 100%;
+    height: 2px;
+    background: #00F0FF;
+    box-shadow: 0 0 10px #00F0FF;
+    top: 0;
+    opacity: 0.7;
+    animation: scan 4s ease-in-out infinite;
+    z-index: 10;
+}
+
+@keyframes scan {
+    0% { top: 10%; opacity: 0; }
+    50% { opacity: 1; }
+    100% { top: 90%; opacity: 0; }
+}
+
+/* 4. 리스크 노드 (빨간 점) */
+.risk-node {
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    background-color: #ff3366; /* 경고색 (Red/Pink) */
+    border-radius: 50%;
+    box-shadow: 0 0 10px #ff3366;
+    z-index: 5;
+    opacity: 0;
+    animation: blink-risk 4s infinite; /* 스캔 속도와 싱크를 맞춤 */
+}
+
+/* 리스크 발견 시 뜨는 작은 글씨 */
+.risk-node .tooltip {
+    position: absolute;
+    left: 15px;
+    top: -5px;
+    font-size: 10px;
+    color: #ff3366;
+    white-space: nowrap;
+    font-family: monospace;
+    opacity: 0;
+    animation: fade-text 4s infinite;
+}
+
+@keyframes blink-risk {
+    0%, 40% { opacity: 0; transform: scale(0.5); }
+    50% { opacity: 1; transform: scale(1.5); } /* 스캔 라인이 지나갈 때 커짐 */
+    60%, 100% { opacity: 0; transform: scale(0.5); }
+}
+
+@keyframes fade-text {
+    0%, 45% { opacity: 0; transform: translateX(-5px); }
+    50% { opacity: 1; transform: translateX(0); }
+    60%, 100% { opacity: 0; }
+}

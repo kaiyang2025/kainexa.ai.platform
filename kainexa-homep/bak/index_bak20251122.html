@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kainexa AI - Enterprise Customer Service Automation Platform</title>
+    <meta name="description" content="한국어 특화 대화형 AI로 고객 서비스의 70%를 자동화합니다. 대기업을 위한 차세대 CS 자동화 플랫폼.">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        * { 
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+        }
+        
+        .gradient-text {
+            background: linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .gradient-border {
+            position: relative;
+            background: linear-gradient(135deg, #6366F1, #8B5CF6);
+            padding: 1px;
+            border-radius: 12px;
+        }
+        
+        .gradient-border-content {
+            background: white;
+            border-radius: 11px;
+            padding: 1.5rem;
+        }
+        
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-20px); }
+        }
+        
+        .float-animation {
+            animation: float 6s ease-in-out infinite;
+        }
+        
+        @keyframes slideUp {
+            from { 
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .slide-up {
+            animation: slideUp 0.8s ease forwards;
+        }
+        
+        .tech-card {
+            transition: all 0.3s ease;
+            border: 1px solid transparent;
+        }
+        
+        .tech-card:hover {
+            border-color: #6366F1;
+            transform: translateY(-8px);
+            box-shadow: 0 20px 40px rgba(99, 102, 241, 0.15);
+        }
+        
+        .metric-number {
+            font-variant-numeric: tabular-nums;
+            letter-spacing: -0.02em;
+        }
+        
+        .glass-effect {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+    </style>
+</head>
+<body class="bg-white text-gray-900 antialiased">
+    <!-- Navigation -->
+    <nav class="fixed top-0 w-full z-50 glass-effect border-b border-gray-100">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <div class="flex items-center gap-10">
+                    <a href="#" class="flex items-center gap-2">
+                        <svg class="w-8 h-8" viewBox="0 0 32 32" fill="none">
+                            <rect width="32" height="32" rx="8" fill="url(#logo-gradient)"/>
+                            <path d="M8 12L16 8L24 12V20L16 24L8 20V12Z" fill="white" opacity="0.9"/>
+                            <defs>
+                                <linearGradient id="logo-gradient" x1="0" y1="0" x2="32" y2="32">
+                                    <stop stop-color="#6366F1"/>
+                                    <stop offset="1" stop-color="#8B5CF6"/>
+                                </linearGradient>
+                            </defs>
+                        </svg>
+                        <span class="text-xl font-bold">Kainexa</span>
+                        <span class="text-xs text-gray-500 font-medium">AI</span>
+                    </a>
+                    
+                    <div class="hidden lg:flex items-center gap-8">
+                        <a href="#products" class="text-sm font-medium text-gray-700 hover:text-indigo-600 transition">Products</a>
+                        <a href="#technology" class="text-sm font-medium text-gray-700 hover:text-indigo-600 transition">Technology</a>
+                        <a href="demo.html" class="text-sm font-medium text-indigo-600 hover:text-indigo-700 transition font-bold">Live Demo 🔥</a>
+                        <a href="#solutions" class="text-sm font-medium text-gray-700 hover:text-indigo-600 transition">Solutions</a>
+                        <a href="#company" class="text-sm font-medium text-gray-700 hover:text-indigo-600 transition">Company</a>
+                        <a href="#resources" class="text-sm font-medium text-gray-700 hover:text-indigo-600 transition">Resources</a>
+                    </div>
+                </div>
+                
+                <div class="flex items-center gap-4">
+                    <a href="#" class="hidden sm:inline-flex text-sm font-medium text-gray-700 hover:text-indigo-600 transition">
+                        Sign In
+                    </a>
+                    <a href="#demo" class="px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-sm font-semibold rounded-lg hover:shadow-lg transition">
+                        Request Demo
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="pt-32 pb-20 relative overflow-hidden">
+        <div class="absolute inset-0 bg-gradient-to-br from-indigo-50 via-white to-purple-50"></div>
+        <div class="absolute top-20 right-0 w-96 h-96 bg-purple-200 rounded-full blur-3xl opacity-20"></div>
+        <div class="absolute bottom-0 left-0 w-96 h-96 bg-indigo-200 rounded-full blur-3xl opacity-20"></div>
+        
+        <div class="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center max-w-4xl mx-auto">
+                <!-- Announcement Badge -->
+                <div class="inline-flex items-center gap-2 px-4 py-2 bg-indigo-50 border border-indigo-200 rounded-full mb-8">
+                    <span class="relative flex h-2 w-2">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-2 w-2 bg-indigo-600"></span>
+                    </span>
+                    <span class="text-sm font-medium text-indigo-900">Series Seed 펀딩 준비 중</span>
+                </div>
+                
+                <h1 class="text-5xl sm:text-6xl lg:text-7xl font-black tracking-tight slide-up">
+                    We build agentic AI systems
+                    <span class="block gradient-text">that connect your data, tools, and operations.</span>
+                </h1>
+
+                <p class="mt-6 text-xl text-gray-600 max-w-2xl mx-auto leading-relaxed">
+                    산재된 데이터를 하나로 잇고, 실제 업무를 실행하는 에이전트형 AI 시스템을 구축합니다.
+                </p>
+                
+                <div class="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
+                    <a href="demo.html" target="_blank" class="px-8 py-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold rounded-xl hover:shadow-2xl transition transform hover:-translate-y-1">
+                        데모 체험하기 →
+                    </a>
+                    <a href="#" class="px-8 py-4 bg-white text-gray-900 font-semibold rounded-xl border border-gray-200 hover:border-indigo-600 transition">
+                        기술 문서 보기
+                    </a>
+                </div>
+                
+                <!-- Trust Indicators -->
+                <!--div class="mt-16 pt-8 border-t border-gray-200">
+                    <p class="text-sm text-gray-500 mb-6">Trusted by Leading Companies</p>
+                    <div class="flex items-center justify-center gap-12 opacity-60">
+                        <img src="/sk-logo.svg" alt="SK" class="h-8">
+                        <img src="/samsung-logo.svg" alt="Samsung" class="h-8">
+                        <img src="/lg-logo.svg" alt="LG" class="h-8">
+                        <img src="/hyundai-logo.svg" alt="Hyundai" class="h-8">
+                    </div>
+                </!--div-->
+            </div>
+        </div>
+    </section>
+
+    <section class="py-16 bg-white border-t border-gray-100">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <!-- 작은 레이블 -->
+            <div class="flex items-center justify-center gap-2 mb-4">
+                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700">
+                    NEW · Flagship Vertical
+                </span>
+                <span class="text-xs text-gray-400">
+                    Built on the Kainexa Agentic AI Platform
+                </span>
+            </div>
+
+            <!-- 타이틀 & 서브텍스트 -->
+            <div class="text-center max-w-3xl mx-auto">
+                <h2 class="text-3xl sm:text-4xl font-extrabold text-gray-900">
+                    Kainexa Construction Law Copilot
+                </h2>
+                <p class="mt-4 text-gray-600 text-base sm:text-lg leading-relaxed">
+                    건설산업기본법, 하도급법, 국가·지방계약법 및 국토부 질의회신, 공정위 의결서 등을
+                    <span class="font-semibold">법령 RAG 아키텍처</span>로 통합한
+                    건설·하도급 특화 AI 코파일럿입니다.
+                </p>
+            </div>
+
+            <!-- 콘텐츠 -->
+            <div class="mt-10 grid grid-cols-1 md:grid-cols-3 gap-8">
+                <!-- 왼쪽: 핵심 기능 -->
+                <div class="md:col-span-2 space-y-6">
+                    <div class="p-6 rounded-2xl border border-gray-200 bg-gray-50/60">
+                        <h3 class="text-sm font-semibold text-indigo-700 uppercase tracking-wide mb-2">
+                            What it does
+                        </h3>
+                        <p class="text-gray-700 text-sm sm:text-base leading-relaxed">
+                            복잡한 건설 계약·하도급 쟁점에 대해, 관련 법령·의결서·질의회신을 한 번에 검색·비교하고
+                            실제 업무에 바로 사용할 수 있는 근거 중심 답변을 제공합니다.
+                        </p>
+                        <ul class="mt-4 space-y-2 text-sm text-gray-700">
+                            <li class="flex gap-2">
+                                <span class="mt-1 h-1.5 w-1.5 rounded-full bg-indigo-500 flex-shrink-0"></span>
+                                <span>하도급대금 지급보증, 설계·시공 변경, 대금 조정 등 주요 쟁점별 질의 응답</span>
+                            </li>
+                            <li class="flex gap-2">
+                                <span class="mt-1 h-1.5 w-1.5 rounded-full bg-indigo-500 flex-shrink-0"></span>
+                                <span>법령–의결서–질의회신을 연결하는 RAG 기반 근거 제시</span>
+                            </li>
+                            <li class="flex gap-2">
+                                <span class="mt-1 h-1.5 w-1.5 rounded-full bg-indigo-500 flex-shrink-0"></span>
+                                <span>Recall@k, nDCG, MRR 등 정량 지표로 검색 품질을 지속 평가·개선</span>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <div class="p-6 rounded-2xl border border-dashed border-indigo-200 bg-white">
+                        <h3 class="text-sm font-semibold text-gray-800 mb-2">
+                            Who it's for
+                        </h3>
+                        <p class="text-gray-700 text-sm sm:text-base">
+                            건설사·시공사 하도급 담당자, 공공 발주·계약 담당자, 건설·부동산 전문 로펌 및
+                            사내 법무팀을 위한 전용 코파일럿입니다.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- 오른쪽: 아키텍처 / CTA 카드 -->
+                <div class="p-6 rounded-2xl border border-gray-200 bg-gradient-to-b from-indigo-50 to-white flex flex-col justify-between">
+                    <div>
+                        <h3 class="text-sm font-semibold text-gray-900 mb-3">
+                            Built on secure, on-prem Agentic AI
+                        </h3>
+                        <ul class="space-y-2 text-sm text-gray-700">
+                            <li class="flex gap-2">
+                                <span class="mt-1 h-1.5 w-1.5 rounded-full bg-indigo-500 flex-shrink-0"></span>
+                                <span>RTX 6000 (LLM) + RTX 3090 (Vector DB) 온프렘 아키텍처</span>
+                            </li>
+                            <li class="flex gap-2">
+                                <span class="mt-1 h-1.5 w-1.5 rounded-full bg-indigo-500 flex-shrink-0"></span>
+                                <span>Kainexa Agentic AI Platform 위에서 동작하는 법령 전용 RAG 파이프라인</span>
+                            </li>
+                            <li class="flex gap-2">
+                                <span class="mt-1 h-1.5 w-1.5 rounded-full bg-indigo-500 flex-shrink-0"></span>
+                                <span>강원대학교 건축공학과와 공동 연구 중인 평가·모델 고도화</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="mt-6">
+                        <a href="#contact" class="inline-flex items-center justify-center w-full px-4 py-3 text-sm font-semibold text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 transition">
+                            Construction Law Copilot 상담하기 →
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Metrics Section -->
+    <section class="py-20 bg-gray-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-8">
+                <div class="text-center">
+                    <div class="text-4xl font-bold gradient-text metric-number">70%</div>
+                    <div class="mt-2 text-sm font-medium text-gray-600">자동화율</div>
+                </div>
+                <div class="text-center">
+                    <div class="text-4xl font-bold gradient-text metric-number">0.8초</div>
+                    <div class="mt-2 text-sm font-medium text-gray-600">평균 응답시간</div>
+                </div>
+                <div class="text-center">
+                    <div class="text-4xl font-bold gradient-text metric-number">50%</div>
+                    <div class="mt-2 text-sm font-medium text-gray-600">비용 절감</div>
+                </div>
+                <div class="text-center">
+                    <div class="text-4xl font-bold gradient-text metric-number">95%</div>
+                    <div class="mt-2 text-sm font-medium text-gray-600">정확도</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Products Section -->
+    <section id="products" class="py-20">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center mb-16">
+                <h2 class="text-4xl font-bold">Our Products</h2>
+                <p class="mt-4 text-xl text-gray-600">엔터프라이즈를 위한 AI 솔루션</p>
+            </div>
+            
+            <div class="grid md:grid-cols-3 gap-8">
+                <!-- Kainexa Core -->
+                <div class="gradient-border">
+                    <div class="gradient-border-content">
+                        <div class="flex items-center gap-3 mb-4">
+                            <div class="w-12 h-12 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-lg flex items-center justify-center">
+                                <span class="text-white text-xl">🧠</span>
+                            </div>
+                            <h3 class="text-xl font-bold">Kainexa Core</h3>
+                        </div>
+                        <p class="text-gray-600 mb-4">
+                            한국어 특화 LLM 기반 대화형 Agentic AI 엔진. 존댓말, 업종별 용어, 문맥 이해에 최적화.
+                        </p>
+                        <ul class="space-y-2 text-sm text-gray-600">
+                            <li class="flex items-center gap-2">
+                                <span class="text-indigo-600">✓</span>
+                                <span>Multi-turn 대화 지원</span>
+                            </li>
+                            <li class="flex items-center gap-2">
+                                <span class="text-indigo-600">✓</span>
+                                <span>실시간 의도 파악</span>
+                            </li>
+                            <li class="flex items-center gap-2">
+                                <span class="text-indigo-600">✓</span>
+                                <span>감정 분석 내장</span>
+                            </li>
+                        </ul>
+                        <a href="#" class="inline-flex items-center gap-2 mt-6 text-indigo-600 font-semibold hover:gap-3 transition-all">
+                            Learn more 
+                            <span>→</span>
+                        </a>
+                    </div>
+                </div>
+                
+                <!-- Kainexa Studio -->
+                <div class="tech-card bg-white rounded-xl border border-gray-200 p-6">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-lg flex items-center justify-center">
+                            <span class="text-white text-xl">🎨</span>
+                        </div>
+                        <h3 class="text-xl font-bold">Kainexa Studio</h3>
+                    </div>
+                    <p class="text-gray-600 mb-4">
+                        No-code 대화 플로우 디자이너. 드래그 앤 드롭으로 복잡한 시나리오 구성.
+                    </p>
+                    <ul class="space-y-2 text-sm text-gray-600">
+                        <li class="flex items-center gap-2">
+                            <span class="text-indigo-600">✓</span>
+                            <span>비주얼 플로우 에디터</span>
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <span class="text-indigo-600">✓</span>
+                            <span>A/B 테스트 지원</span>
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <span class="text-indigo-600">✓</span>
+                            <span>실시간 미리보기</span>
+                        </li>
+                    </ul>
+                    <a href="#" class="inline-flex items-center gap-2 mt-6 text-indigo-600 font-semibold hover:gap-3 transition-all">
+                        Learn more 
+                        <span>→</span>
+                    </a>
+                </div>
+                
+                <!-- Kainexa Analytics -->
+                <div class="tech-card bg-white rounded-xl border border-gray-200 p-6">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-500 rounded-lg flex items-center justify-center">
+                            <span class="text-white text-xl">📊</span>
+                        </div>
+                        <h3 class="text-xl font-bold">Kainexa Analytics</h3>
+                    </div>
+                    <p class="text-gray-600 mb-4">
+                        실시간 성과 모니터링과 인사이트. CS 품질을 데이터로 관리.
+                    </p>
+                    <ul class="space-y-2 text-sm text-gray-600">
+                        <li class="flex items-center gap-2">
+                            <span class="text-indigo-600">✓</span>
+                            <span>대화 품질 스코어링</span>
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <span class="text-indigo-600">✓</span>
+                            <span>고객 만족도 추적</span>
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <span class="text-indigo-600">✓</span>
+                            <span>ROI 대시보드</span>
+                        </li>
+                    </ul>
+                    <a href="#" class="inline-flex items-center gap-2 mt-6 text-indigo-600 font-semibold hover:gap-3 transition-all">
+                        Learn more 
+                        <span>→</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Technology Section -->
+    <section id="technology" class="py-20 bg-gray-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center mb-16">
+                <h2 class="text-4xl font-bold">Our Technology</h2>
+                <p class="mt-4 text-xl text-gray-600">최첨단 AI 기술의 결합</p>
+            </div>
+            
+            <div class="grid lg:grid-cols-2 gap-12 items-center">
+                <div>
+                    <h3 class="text-2xl font-bold mb-6">Korean-First LLM Architecture</h3>
+                    
+                    <div class="space-y-6">
+                        <div class="flex gap-4">
+                            <div class="flex-shrink-0 w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center">
+                                <span class="text-indigo-600 font-bold">1</span>
+                            </div>
+                            <div>
+                                <h4 class="font-semibold mb-2">Advanced Language Understanding</h4>
+                                <p class="text-gray-600">
+                                    최신 오픈소스 LLM 기반 한국어 특화 파인튜닝. 존댓말 7단계, 
+                                    업계 전문 용어, 문맥 기반 의미 파악 지원.
+                                </p>
+                            </div>
+                        </div>
+                        
+                        <div class="flex gap-4">
+                            <div class="flex-shrink-0 w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center">
+                                <span class="text-indigo-600 font-bold">2</span>
+                            </div>
+                            <div>
+                                <h4 class="font-semibold mb-2">Retrieval-Augmented Generation</h4>
+                                <p class="text-gray-600">
+                                    기업 내부 문서, FAQ, 정책을 실시간 참조. 
+                                    환각 현상 최소화, 정확한 정보 제공.
+                                </p>
+                            </div>
+                        </div>
+                        
+                        <div class="flex gap-4">
+                            <div class="flex-shrink-0 w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center">
+                                <span class="text-indigo-600 font-bold">3</span>
+                            </div>
+                            <div>
+                                <h4 class="font-semibold mb-2">Enterprise Security</h4>
+                                <p class="text-gray-600">
+                                    On-premise 배포 지원, End-to-end 암호화, 
+                                    개인정보 자동 마스킹, ISMS-P 준수.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-8">
+                        <a href="#" class="inline-flex items-center gap-2 text-indigo-600 font-semibold hover:gap-3 transition-all">
+                            Technical Whitepaper 
+                            <span>→</span>
+                        </a>
+                    </div>
+                </div>
+                
+                <div class="relative">
+                    <div class="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl p-1">
+                        <div class="bg-white rounded-xl p-8">
+                            <pre class="text-sm text-gray-700 overflow-x-auto">
+<code>{
+  "model": "kainexa-core-v1",
+  "input": {
+    "text": "주문한 제품이 아직 안 왔는데요",
+    "context": "previous_order_inquiry"
+  },
+  "output": {
+    "intent": "delivery_tracking",
+    "entities": {
+      "issue": "delayed_delivery",
+      "sentiment": "frustrated"
+    },
+    "response": "고객님, 불편을 드려 죄송합니다. 
+    주문번호를 확인하여 배송 상태를 
+    즉시 확인해드리겠습니다.",
+    "confidence": 0.96
+  }
+}</code>
+                            </pre>
+                        </div>
+                    </div>
+                    
+                    <div class="absolute -bottom-6 -right-6 bg-yellow-400 text-black px-4 py-2 rounded-lg font-semibold shadow-lg">
+                        Live Demo
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Solutions Section -->
+    <section id="solutions" class="py-20">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center mb-16">
+                <h2 class="text-4xl font-bold">Industry Solutions</h2>
+                <p class="mt-4 text-xl text-gray-600">산업별 맞춤 솔루션</p>
+            </div>
+            
+            <div class="grid md:grid-cols-3 gap-8">
+                <div class="group cursor-pointer">
+                    <div class="bg-white rounded-xl border border-gray-200 p-6 hover:border-indigo-500 transition">
+                        <div class="w-16 h-16 bg-blue-100 rounded-xl flex items-center justify-center mb-4">
+                            <span class="text-2xl">🏦</span>
+                        </div>
+                        <h3 class="text-xl font-bold mb-2">금융</h3>
+                        <p class="text-gray-600 mb-4">
+                            계좌 조회, 이체, 대출 상담 자동화
+                        </p>
+                        <ul class="space-y-1 text-sm text-gray-500">
+                            <li>• 24/7 금융 상담</li>
+                            <li>• 본인 인증 연동</li>
+                            <li>• 금융 규제 준수</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <div class="group cursor-pointer">
+                    <div class="bg-white rounded-xl border border-gray-200 p-6 hover:border-indigo-500 transition">
+                        <div class="w-16 h-16 bg-green-100 rounded-xl flex items-center justify-center mb-4">
+                            <span class="text-2xl">🛍️</span>
+                        </div>
+                        <h3 class="text-xl font-bold mb-2">이커머스</h3>
+                        <p class="text-gray-600 mb-4">
+                            주문, 배송, 교환/환불 처리 자동화
+                        </p>
+                        <ul class="space-y-1 text-sm text-gray-500">
+                            <li>• 실시간 재고 연동</li>
+                            <li>• 배송 추적 자동화</li>
+                            <li>• 구매 상담 지원</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <div class="group cursor-pointer">
+                    <div class="bg-white rounded-xl border border-gray-200 p-6 hover:border-indigo-500 transition">
+                        <div class="w-16 h-16 bg-purple-100 rounded-xl flex items-center justify-center mb-4">
+                            <span class="text-2xl">📱</span>
+                        </div>
+                        <h3 class="text-xl font-bold mb-2">통신</h3>
+                        <p class="text-gray-600 mb-4">
+                            요금제 변경, 부가서비스 신청 자동화
+                        </p>
+                        <ul class="space-y-1 text-sm text-gray-500">
+                            <li>• 실시간 요금 조회</li>
+                            <li>• 서비스 추천 AI</li>
+                            <li>• 장애 신고 처리</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Company Section -->
+    <section id="company" class="py-20 bg-gray-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center mb-16">
+                <h2 class="text-4xl font-bold">Company</h2>
+                <p class="mt-4 text-xl text-gray-600">AI로 더 나은 고객 경험을 만드는 사람들</p>
+            </div>
+            
+            <div class="grid lg:grid-cols-2 gap-12">
+                <div>
+                    <h3 class="text-2xl font-bold mb-6">Our Mission</h3>
+                    <p class="text-gray-600 mb-6">
+                        Kainexa는 AI 기술로 고객 서비스의 패러다임을 혁신합니다. 
+                        반복적인 문의는 AI가 처리하고, 사람은 더 가치있는 일에 집중할 수 있는 
+                        미래를 만들어갑니다.
+                    </p>
+                    
+                    <div class="space-y-4">
+                        <div class="flex items-center gap-4">
+                            <div class="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center">
+                                <span class="text-indigo-600">🚀</span>
+                            </div>
+                            <div>
+                                <h4 class="font-semibold">Innovation First</h4>
+                                <p class="text-sm text-gray-600">최신 AI 기술을 실용적으로 구현</p>
+                            </div>
+                        </div>
+                        
+                        <div class="flex items-center gap-4">
+                            <div class="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center">
+                                <span class="text-indigo-600">🤝</span>
+                            </div>
+                            <div>
+                                <h4 class="font-semibold">Customer Success</h4>
+                                <p class="text-sm text-gray-600">고객의 성공이 우리의 성공</p>
+                            </div>
+                        </div>
+                        
+                        <div class="flex items-center gap-4">
+                            <div class="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center">
+                                <span class="text-indigo-600">🌏</span>
+                            </div>
+                            <div>
+                                <h4 class="font-semibold">Global Standard</h4>
+                                <p class="text-sm text-gray-600">한국을 넘어 세계로</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div>
+                    <h3 class="text-2xl font-bold mb-6">Leadership Team</h3>
+                    
+                    <div class="space-y-4">
+                        <div class="bg-white rounded-xl p-4 border border-gray-200">
+                            <div class="flex items-center gap-4">
+                                <img src="/ceo-photo.jpg" alt="CEO" class="w-16 h-16 rounded-full bg-gray-200">
+                                <div>
+                                    <h4 class="font-semibold">양길동</h4>
+                                    <p class="text-sm text-gray-600">Co-founder & CEO</p>
+                                    <p class="text-xs text-gray-500 mt-1">前 SK C&C 데이터엔지니어</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="bg-white rounded-xl p-4 border border-gray-200">
+                            <div class="flex items-center gap-4">
+                                <img src="/cto-photo.jpg" alt="CTO" class="w-16 h-16 rounded-full bg-gray-200">
+                                <div>
+                                    <h4 class="font-semibold">정길동</h4>
+                                    <p class="text-sm text-gray-600">Co-founder & CTO</p>
+                                    <p class="text-xs text-gray-500 mt-1">前 SK C&C AI 연구원</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="bg-white rounded-xl p-4 border border-gray-200">
+                            <div class="flex items-center gap-4">
+                                <img src="/cpo-photo.jpg" alt="CPO" class="w-16 h-16 rounded-full bg-gray-200">
+                                <div>
+                                    <h4 class="font-semibold">이길동</h4>
+                                    <p class="text-sm text-gray-600">CPO</p>
+                                    <p class="text-xs text-gray-500 mt-1">前 삼성 Product Lead, 서울대 박사</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-8 p-4 bg-indigo-50 rounded-xl">
+                        <p class="text-sm font-semibold text-indigo-900 mb-2">Join Us!</p>
+                        <p class="text-sm text-indigo-700">
+                            세계 최고의 CS AI를 함께 만들어갈 인재를 찾습니다.
+                        </p>
+                        <a href="#" class="inline-flex items-center gap-2 mt-3 text-indigo-600 font-semibold text-sm hover:gap-3 transition-all">
+                            채용 정보 보기 
+                            <span>→</span>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Investors & Partners -->
+    <section class="py-20 border-t border-gray-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center mb-12">
+                <h2 class="text-2xl font-bold">Investors & Partners</h2>
+            </div>
+            
+            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-8 items-center">
+                <div class="flex items-center justify-center">
+                    <img src="/investor1.svg" alt="Investor" class="h-10 opacity-60 hover:opacity-100 transition">
+                </div>
+                <div class="flex items-center justify-center">
+                    <img src="/investor2.svg" alt="Investor" class="h-10 opacity-60 hover:opacity-100 transition">
+                </div>
+                <div class="flex items-center justify-center">
+                    <img src="/partner1.svg" alt="Partner" class="h-10 opacity-60 hover:opacity-100 transition">
+                </div>
+                <div class="flex items-center justify-center">
+                    <img src="/partner2.svg" alt="Partner" class="h-10 opacity-60 hover:opacity-100 transition">
+                </div>
+                <div class="flex items-center justify-center">
+                    <img src="/aws.svg" alt="AWS" class="h-10 opacity-60 hover:opacity-100 transition">
+                </div>
+                <div class="flex items-center justify-center">
+                    <img src="/nvidia.svg" alt="NVIDIA" class="h-10 opacity-60 hover:opacity-100 transition">
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="py-20 bg-gradient-to-br from-indigo-600 to-purple-600 text-white">
+        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+            <h2 class="text-4xl font-bold mb-6">
+                Ready to Transform Your Customer Service?
+            </h2>
+            <p class="text-xl mb-8 text-indigo-100">
+                2주 무료 POC로 AI 자동화의 효과를 직접 확인하세요
+            </p>
+            
+            <div class="flex flex-col sm:flex-row gap-4 justify-center">
+                <a href="demo.html" class="px-8 py-4 bg-white text-indigo-600 font-bold rounded-xl hover:shadow-2xl transition">
+                    라이브 데모 체험 →
+                </a>
+                <a href="#" class="px-8 py-4 bg-indigo-700 text-white font-bold rounded-xl hover:bg-indigo-800 transition">
+                    Sales 문의
+                </a>
+            </div>
+            
+            <div class="mt-12 grid grid-cols-3 gap-8 max-w-2xl mx-auto">
+                <div>
+                    <div class="text-3xl font-bold">2주</div>
+                    <div class="text-sm text-indigo-200">POC 구축</div>
+                </div>
+                <div>
+                    <div class="text-3xl font-bold">70%</div>
+                    <div class="text-sm text-indigo-200">자동화율</div>
+                </div>
+                <div>
+                    <div class="text-3xl font-bold">24/7</div>
+                    <div class="text-sm text-indigo-200">운영 지원</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="py-16 bg-gray-900 text-white">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-8">
+                <div class="col-span-2">
+                    <div class="flex items-center gap-2 mb-4">
+                        <svg class="w-8 h-8" viewBox="0 0 32 32" fill="none">
+                            <rect width="32" height="32" rx="8" fill="white"/>
+                            <path d="M8 12L16 8L24 12V20L16 24L8 20V12Z" fill="#6366F1"/>
+                        </svg>
+                        <span class="text-xl font-bold">Kainexa AI</span>
+                    </div>
+                    <p class="text-gray-400 text-sm mb-4">
+                        Building the future of customer service with AI
+                    </p>
+                    <div class="flex gap-4">
+                        <a href="#" class="text-gray-400 hover:text-white">
+                            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M8.29 20.251c7.547 0 11.675-6.253 11.675-11.675 0-.178 0-.355-.012-.53A8.348 8.348 0 0022 5.92a8.19 8.19 0 01-2.357.646 4.118 4.118 0 001.804-2.27 8.224 8.224 0 01-2.605.996 4.107 4.107 0 00-6.993 3.743 11.65 11.65 0 01-8.457-4.287 4.106 4.106 0 001.27 5.477A4.072 4.072 0 012.8 9.713v.052a4.105 4.105 0 003.292 4.022 4.095 4.095 0 01-1.853.07 4.108 4.108 0 003.834 2.85A8.233 8.233 0 012 18.407a11.616 11.616 0 006.29 1.84"/>
+                            </svg>
+                        </a>
+                        <a href="#" class="text-gray-400 hover:text-white">
+                            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/>
+                            </svg>
+                        </a>
+                        <a href="#" class="text-gray-400 hover:text-white">
+                            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                            </svg>
+                        </a>
+                    </div>
+                </div>
+                
+                <div>
+                    <h4 class="font-semibold mb-4">Product</h4>
+                    <ul class="space-y-2 text-sm text-gray-400">
+                        <li><a href="#" class="hover:text-white">Features</a></li>
+                        <li><a href="#" class="hover:text-white">Pricing</a></li>
+                        <li><a href="#" class="hover:text-white">API</a></li>
+                        <li><a href="#" class="hover:text-white">Integrations</a></li>
+                    </ul>
+                </div>
+                
+                <div>
+                    <h4 class="font-semibold mb-4">Company</h4>
+                    <ul class="space-y-2 text-sm text-gray-400">
+                        <li><a href="#" class="hover:text-white">About</a></li>
+                        <li><a href="#" class="hover:text-white">Blog</a></li>
+                        <li><a href="#" class="hover:text-white">Careers</a></li>
+                        <li><a href="#" class="hover:text-white">Press</a></li>
+                    </ul>
+                </div>
+                
+                <div>
+                    <h4 class="font-semibold mb-4">Resources</h4>
+                    <ul class="space-y-2 text-sm text-gray-400">
+                        <li><a href="#" class="hover:text-white">Documentation</a></li>
+                        <li><a href="#" class="hover:text-white">Help Center</a></li>
+                        <li><a href="#" class="hover:text-white">Community</a></li>
+                        <li><a href="#" class="hover:text-white">Contact</a></li>
+                    </ul>
+                </div>
+            </div>
+            
+            <div class="border-t border-gray-800 mt-12 pt-8 flex flex-col md:flex-row justify-between items-center">
+                <div class="text-sm text-gray-400">
+                    © 2025 Kainexa AI, Inc. All rights reserved.
+                </div>
+                <div class="flex gap-6 text-sm text-gray-400 mt-4 md:mt-0">
+                    <a href="#" class="hover:text-white">Privacy Policy</a>
+                    <a href="#" class="hover:text-white">Terms of Service</a>
+                    <a href="#" class="hover:text-white">Security</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Demo Modal (Hidden by default) -->
+    <div id="demo-modal" class="hidden fixed inset-0 z-50 overflow-y-auto">
+        <div class="flex items-center justify-center min-h-screen px-4">
+            <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity"></div>
+            
+            <div class="relative bg-white rounded-2xl max-w-md w-full p-8">
+                <h3 class="text-2xl font-bold mb-4">데모 신청</h3>
+                <form class="space-y-4">
+                    <input type="text" placeholder="회사명" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                    <input type="text" placeholder="이름" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                    <input type="email" placeholder="이메일" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                    <input type="tel" placeholder="연락처" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                    <select class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                        <option>월 CS 문의량</option>
+                        <option>1,000건 미만</option>
+                        <option>1,000 - 10,000건</option>
+                        <option>10,000 - 100,000건</option>
+                        <option>100,000건 이상</option>
+                    </select>
+                    <textarea placeholder="관심사항 (선택)" rows="3" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"></textarea>
+                    
+                    <button type="submit" class="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold rounded-lg hover:shadow-lg transition">
+                        신청하기
+                    </button>
+                </form>
+                
+                <button onclick="closeModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Demo modal handling
+        document.querySelectorAll('a[href="#demo"]').forEach(link => {
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+                document.getElementById('demo-modal').classList.remove('hidden');
+            });
+        });
+        
+        function closeModal() {
+            document.getElementById('demo-modal').classList.add('hidden');
+        }
+        
+        // Smooth scroll
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                if (this.getAttribute('href') !== '#demo') {
+                    e.preventDefault();
+                    const target = document.querySelector(this.getAttribute('href'));
+                    if (target) {
+                        target.scrollIntoView({ behavior: 'smooth' });
+                    }
+                }
+            });
+        });
+    </script>
+
+    <!-- index.html의 </body> 태그 바로 위에 추가 -->
+    <div class="fixed bottom-8 right-8 z-40">
+        <a href="demo.html" class="group flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold rounded-full shadow-2xl hover:shadow-3xl transition-all transform hover:scale-105">
+            <span class="relative flex h-3 w-3">
+                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                <span class="relative inline-flex rounded-full h-3 w-3 bg-white"></span>
+            </span>
+            <span>Live Demo</span>
+            <svg class="w-5 h-5 group-hover:translate-x-1 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"></path>
+            </svg>
+        </a>
+    </div>
+</body>
+</html>

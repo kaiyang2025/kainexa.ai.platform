@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kainexa AI - Intelligent Graph Network</title>
+    <style>
+        /* --- 1. 기본 설정 (Reset & Body) --- */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: #050505;
+            color: #ffffff;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            overflow-x: hidden;
+        }
+
+        /* --- 2. 배경 및 레이아웃 (Layout) --- */
+        #network-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+        }
+
+        .hero-content {
+            position: relative;
+            z-index: 1;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            background: radial-gradient(circle at center, transparent 0%, #050505 120%);
+            padding: 0 20px; /* 모바일에서 좌우 여백 확보 */
+        }
+
+        /* --- 3. 타이포그래피 (Typography) --- */
+        h1 {
+            font-size: 4rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            margin-bottom: 0; /* delayed-content의 gap으로 간격 조절하므로 margin 제거 */
+            background: linear-gradient(135deg, #ffffff 0%, #a5a5a5 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            min-height: 1.2em; /* 타이핑 전에도 높이 확보하여 레이아웃 흔들림 방지 */
+        }
+
+        /* 모바일 폰트 크기 조정 */
+        @media (max-width: 768px) {
+            h1 { font-size: 2.5rem; }
+        }
+
+        /* --- 4. 콘텐츠 컨테이너 (레이아웃 핵심 수정 반영) --- */
+        #delayed-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 40px; /* 텍스트와 버튼 사이 간격 고정 */
+            
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 1s ease, transform 1s ease;
+            margin-top: 20px;
+        }
+
+        #delayed-content.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        #delayed-content p {
+            font-size: 1.25rem;
+            color: #ccc;
+            max-width: 800px;
+            line-height: 1.6;
+            margin: 0;
+        }
+
+        /* --- 5. 버튼 스타일 (Button) --- */
+        .btn {
+            margin-top: 0; /* gap으로 처리하므로 마진 0 */
+            padding: 1rem 2.5rem;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #fff;
+            text-decoration: none;
+            border-radius: 4px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(5px);
+        }
+
+        .btn:hover {
+            background: rgba(0, 240, 255, 0.2);
+            border-color: rgba(0, 240, 255, 0.5);
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.3);
+        }
+
+        /* --- 6. 네비게이션 바 (Navigation) --- */
+        nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 4rem;
+            z-index: 1000;
+            background: rgba(5, 5, 5, 0.6);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: 700;
+            letter-spacing: -0.05em;
+            color: #fff;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .logo::before {
+            content: '';
+            display: block;
+            width: 8px;
+            height: 8px;
+            background-color: #00F0FF;
+            border-radius: 50%;
+            box-shadow: 0 0 10px #00F0FF;
+        }
+
+        .nav-links {
+            display: flex;
+            list-style: none;
+            gap: 2.5rem;
+        }
+
+        .nav-links li a {
+            text-decoration: none;
+            color: #888;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: color 0.3s ease;
+            position: relative;
+        }
+
+        .nav-links li a:hover {
+            color: #fff;
+        }
+
+        .nav-links li a::after {
+            content: '';
+            position: absolute;
+            width: 0%;
+            height: 2px;
+            bottom: -5px;
+            left: 0;
+            background-color: #00F0FF;
+            transition: width 0.3s ease;
+        }
+
+        .nav-links li a:hover::after {
+            width: 100%;
+        }
+
+        .nav-cta {
+            padding: 0.6rem 1.2rem;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #fff;
+            text-decoration: none;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .nav-cta:hover {
+            background: rgba(0, 240, 255, 0.15);
+            border-color: #00F0FF;
+            color: #00F0FF;
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.2);
+        }
+
+        @media (max-width: 768px) {
+            nav { padding: 1rem 1.5rem; }
+            .nav-links { display: none; }
+        }
+
+        /* --- 7. 애니메이션 효과 (Cursor) --- */
+        .cursor {
+            display: inline-block;
+            width: 4px;
+            height: 1em;
+            background-color: #00F0FF;
+            margin-left: 8px;
+            vertical-align: bottom;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="network-canvas"></canvas>
+    
+    <nav>
+        <a href="#" class="logo">KAINEXA AI</a>
+        <ul class="nav-links">
+            <li><a href="#">Platform</a></li>
+            <li><a href="#">Solutions</a></li>
+            <li><a href="#">Technology</a></li>
+            <li><a href="#">Company</a></li>
+        </ul>
+        <a href="#" class="nav-cta">Start Now</a>
+    </nav>
+
+    <div class="hero-content">
+        <h1 id="typewriter-text"></h1>        
+        <div id="delayed-content">
+            <p>
+                Kainexa AI transforms unstructured regulations into intelligent decisions<br>
+                with Graph RAG & Autonomous Agents.
+            </p>
+            <a href="#" class="btn">Explore Platform</a>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. 파티클 네트워크 배경 (Particle Network)
+        // ==========================================
+        const canvas = document.getElementById('network-canvas');
+        const ctx = canvas.getContext('2d');
+        let particlesArray;
+
+        const config = {
+            particleColor: 'rgba(255, 255, 255, 0.6)',
+            lineColor: 'rgba(0, 240, 255,', 
+            particleCount: 100, 
+            connectionDistance: 150,
+            mouseDistance: 200, 
+            baseSpeed: 0.5 
+        };
+
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        let mouse = { x: null, y: null, radius: config.mouseDistance };
+
+        window.addEventListener('mousemove', function(event) {
+            mouse.x = event.x;
+            mouse.y = event.y;
+        });
+
+        class Particle {
+            constructor() {
+                this.size = (Math.random() * 2) + 1;
+                this.x = Math.random() * (innerWidth - this.size * 2) + this.size * 2;
+                this.y = Math.random() * (innerHeight - this.size * 2) + this.size * 2;
+                this.directionX = (Math.random() * 2) - 1.0;
+                this.directionY = (Math.random() * 2) - 1.0;
+            }
+            update() {
+                if (this.x > canvas.width || this.x < 0) this.directionX = -this.directionX;
+                if (this.y > canvas.height || this.y < 0) this.directionY = -this.directionY;
+                this.x += this.directionX * config.baseSpeed;
+                this.y += this.directionY * config.baseSpeed;
+            }
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = config.particleColor;
+                ctx.fill();
+            }
+        }
+
+        function init() {
+            particlesArray = [];
+            let numberOfParticles = (canvas.height * canvas.width) / 15000; 
+            for (let i = 0; i < numberOfParticles; i++) {
+                particlesArray.push(new Particle());
+            }
+        }
+
+        function connect() {
+            let opacityValue = 1;
+            for (let a = 0; a < particlesArray.length; a++) {
+                for (let b = a; b < particlesArray.length; b++) {
+                    let distance = ((particlesArray[a].x - particlesArray[b].x) ** 2) + 
+                                   ((particlesArray[a].y - particlesArray[b].y) ** 2);
+                    
+                    if (distance < (config.connectionDistance ** 2)) {
+                        opacityValue = 1 - (distance / 20000);
+                        ctx.strokeStyle = config.lineColor + opacityValue + ')';
+                        ctx.lineWidth = 1;
+                        ctx.beginPath();
+                        ctx.moveTo(particlesArray[a].x, particlesArray[a].y);
+                        ctx.lineTo(particlesArray[b].x, particlesArray[b].y);
+                        ctx.stroke();
+                    }
+                }
+                
+                let mouseDistance = ((particlesArray[a].x - mouse.x) ** 2) + 
+                                    ((particlesArray[a].y - mouse.y) ** 2);
+                
+                if (mouseDistance < (config.mouseDistance ** 2)) {
+                    opacityValue = 1 - (mouseDistance / 40000);
+                    ctx.strokeStyle = 'rgba(0, 240, 255,' + opacityValue + ')';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(particlesArray[a].x, particlesArray[a].y);
+                    ctx.lineTo(mouse.x, mouse.y);
+                    ctx.stroke();
+                }
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            ctx.clearRect(0, 0, innerWidth, innerHeight);
+            for (let i = 0; i < particlesArray.length; i++) {
+                particlesArray[i].update();
+                particlesArray[i].draw();
+            }
+            connect();
+        }
+
+        window.addEventListener('resize', function() {
+            canvas.width = innerWidth;
+            canvas.height = innerHeight;
+            init();
+        });
+
+        window.addEventListener('mouseout', function(){
+            mouse.x = undefined;
+            mouse.y = undefined;
+        });
+
+        // 파티클 시작
+        init();
+        animate();
+
+
+        // ==========================================
+        // 2. 타이핑 효과 (Typewriter Effect)
+        // ==========================================
+        const textToType = "Beyond Search, Towards Decision.";
+        const typeWriterElement = document.getElementById('typewriter-text');
+        const delayedContent = document.getElementById('delayed-content');
+        
+        let charIndex = 0;
+        const typingSpeed = 100; 
+
+        function typeWriter() {
+            if (charIndex < textToType.length) {
+                typeWriterElement.innerHTML = textToType.substring(0, charIndex + 1) + '<span class="cursor"></span>';
+                charIndex++;
+                setTimeout(typeWriter, typingSpeed);
+            } else {
+                typeWriterElement.innerHTML = textToType + '<span class="cursor"></span>';
+                setTimeout(() => {
+                    delayedContent.classList.add('visible');
+                }, 500);
+            }
+        }
+
+        setTimeout(typeWriter, 500);
+
+    </script>
+</body>
+</html>
