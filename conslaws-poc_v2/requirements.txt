@@ -1,0 +1,14 @@
+streamlit
+neo4j
+rank_bm25
+kiwipiepy
+sentence-transformers
+chromadb
+pandas
+numpy
+torch
+python-dotenv
+regex
+pypdf
+langchain-core
+langchain-community
