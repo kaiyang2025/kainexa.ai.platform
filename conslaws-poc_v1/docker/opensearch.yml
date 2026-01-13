@@ -1,13 +1,16 @@
+version: '3'
 services:
   opensearch:
-    image: opensearchproject/opensearch:2
+    image: opensearchproject/opensearch:2.11.0  # 버전 명시 권장
+    container_name: opensearch-node
     environment:
       - discovery.type=single-node
-      - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
-      # 보안 ON → 초기 admin 비번 필요
-      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_INITIAL_ADMIN_PASSWORD}
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+      # 👇 POC용 핵심 수정: 보안 비활성화 (비번/SSL 없이 HTTP 접속 허용)
+      - "plugins.security.disabled=true"
     ports:
       - "9200:9200"
+      - "9600:9600"
     ulimits:
       nofile:
         soft: 65536
@@ -15,6 +18,3 @@ services:
       memlock:
         soft: -1
         hard: -1
-    # (선택) 별도 env 파일로 분리하고 싶다면:
-    # env_file:
-    #   - ./docker/.env.opensearch
