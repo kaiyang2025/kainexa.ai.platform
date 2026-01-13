@@ -3,6 +3,7 @@ import os
 from config_model import RAGConfig
 from rag_engine import ConstructionRAG
 
+
 # 페이지 설정
 st.set_page_config(page_title="Kainexa 건설법령 RAG", layout="wide")
 
