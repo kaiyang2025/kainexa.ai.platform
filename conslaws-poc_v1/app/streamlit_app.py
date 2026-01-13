@@ -2,6 +2,7 @@
 """
 streamlit_app.py (Demo UI Revision)
 - 건설협회 시연용 검색 중심 UI
+- 다시 시작
 - 주요 변경: 통합 검색 흐름, 카드형 UI, 설정 숨김, 스트리밍 효과
 """
 from __future__ import annotations
