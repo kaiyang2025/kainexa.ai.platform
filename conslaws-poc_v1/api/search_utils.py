@@ -305,10 +305,14 @@ class Retriever:
         cand_factor: Optional[float] = None,
     ) -> List[Dict[str, Any]]:
         
+        req_n = max(1, int(round(k * max(1.0, cand_factor))))
+        bm25_k = max(BM25_K, req_n * 5) 
+        dense_k = max(DENSE_K, req_n * 5)
+        
         # 1. 개별 검색 (확장 고려하여 넉넉히)
         # 노트북 로직: top_k * 3배수
-        bm25_res = self._bm25(q, k=k*3)
-        dense_res = self._dense(q, k=k*3)
+        bm25_res = self._bm25(q, k=bm25_k)
+        dense_res = self._dense(q, k=dense_k)
         
         # 2. 문맥 확장 (Expansion)
         bm25 = self._expand_results(bm25_res)
