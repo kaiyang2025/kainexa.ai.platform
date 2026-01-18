@@ -7,7 +7,7 @@ load_dotenv(ROOT / ".env", override=True)
 OPENSEARCH_URL = os.getenv("OPENSEARCH_URL", "http://localhost:9200")
 OPENSEARCH_INDEX = os.getenv("OPENSEARCH_INDEX", "law_clauses")
 EMBED_MODEL = os.getenv("EMBED_MODEL", "BAAI/bge-m3")
-RERANK_MODEL = os.getenv("RERANK_MODEL", "BAAI/bge-reranker-large")
+RERANK_MODEL = os.getenv("RERANK_MODEL", "BAAI/bge-reranker-v2-m3")
 GEN_BACKEND = os.getenv("GEN_BACKEND", "dummy")
 GEN_MODEL = os.getenv("GEN_MODEL", "gpt-4o-mini")
 
