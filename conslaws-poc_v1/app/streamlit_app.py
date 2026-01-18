@@ -186,11 +186,12 @@ if submit and query:
                 law = ctx.get('law_name', '법령')
                 clause = ctx.get('clause_id', '')
                 title = ctx.get('title', '')
-                text = ctx.get('text', '')
+                #text = ctx.get('text', '')
+                text = ctx.get('text') or ""  # <-- None이면 빈 문자열("")로 변환
                 score = ctx.get('score', 0)
                 
                 # 텍스트 길이 제한
-                short_text = text[:150] + "..." if len(text) > 150 else text
+                short_text = text[:200] + "..." if len(text) > 200 else text
                 
                 with cols[i % 2]:
                     with st.container(border=True):
