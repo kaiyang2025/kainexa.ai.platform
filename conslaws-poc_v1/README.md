@@ -26,9 +26,12 @@ cp .env.example .env
 # 필요시 OPENAI_API_KEY, 모델명 등 수정
 
 # parse → chunk (조/항)
-python scripts/parse_and_chunk.py
+python scripts/parse_and_chunk2.py
 
-# index (OpenSearch + FAISS)
+# 시행령 -> 법률 매핑정보 
+python scripts/build_mapping.py
+
+# index (OpenSearch + ChromaDB 생성)
 python scripts/build_index.py
 
 # API (검색/RAG)

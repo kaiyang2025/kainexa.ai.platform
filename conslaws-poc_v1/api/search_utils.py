@@ -1,22 +1,13 @@
 # -*- coding: utf-8 -*-
-"""
-search_utils.py
-- 하이브리드 검색(BM25 + Dense/FAISS) + RRF/가중합 결합 + (선택) CrossEncoder 리랭크
-- 인덱스 경로: ./index/{faiss.index, meta.json, docs.jsonl}
-- OpenSearch 문서 스키마: {id, law_name, clause_id, title, text, ...}
-"""
-from __future__ import annotations
-
-
 import json
 import pathlib
+import chromadb
+from chromadb.config import Settings
 from typing import List, Dict, Any, Optional
+from collections import defaultdict
 
-import faiss  # type: ignore
-import numpy as np
 from opensearchpy import OpenSearch
 from sentence_transformers import SentenceTransformer, CrossEncoder
-
 
 from .config import (
     OPENSEARCH_URL, OPENSEARCH_INDEX,
@@ -25,87 +16,99 @@ from .config import (
     RERANK_CAND_FACTOR,
     LAMBDA_BM25, LAMBDA_DENSE,
     SEARCH_METHOD, USE_RERANK,
-    
 )
 
 # 경로 상수
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 INDEX_DIR = ROOT / "index"
 DOCS_PATH = INDEX_DIR / "docs.jsonl"
-META_PATH = INDEX_DIR / "meta.json"
-FAISS_PATH = INDEX_DIR / "faiss.index"
+CHROMA_DIR = INDEX_DIR / "chroma"
+MAPPING_PATH = INDEX_DIR / "law_enfor_mapping.json"
 
 class Retriever:    
     """
     하이브리드 검색기
-    - OpenSearch(BM25) + FAISS(Dense)
-    - 결합: RRF(기본) 또는 가중합(alpha)
+    - OpenSearch(BM25) + ChromaDB(Dense)
+    - 문맥 확장: 법령 <-> 시행령 자동 연결
+    - 결합: RRF(기본) 또는 가중합
     - 리랭크: CrossEncoder(옵션)
     """
     def __init__(self,
         opensearch_url: Optional[str] = None,
         index_name: Optional[str] = None,
         embed_model_name: Optional[str] = None,
-        faiss_dir: Optional[str] = None,
+        chroma_dir: Optional[str] = None, # FAISS_DIR 대신 CHROMA_DIR 사용
         reranker_name: Optional[str] = None,
     ):
         # ---- 설정 ----
         self.opensearch_url = opensearch_url or OPENSEARCH_URL
         self.index_name = index_name or OPENSEARCH_INDEX
         self.embed_model_name = embed_model_name or EMBED_MODEL
+        self.chroma_path = chroma_dir or CHROMA_DIR
         
-        # ---- OpenSearch ----
-        #self.client = OpenSearch(OPENSEARCH_URL, timeout=60)
-        self.client = OpenSearch(self.opensearch_url, timeout=60)
-        
-        
-        # ---- 임베딩/FAISS ----  
-        self.embedder = SentenceTransformer(self.embed_model_name)
-        base = pathlib.Path(faiss_dir) if faiss_dir else INDEX_DIR
-        faiss_path = base / "faiss.index"
-        meta_path = base / "meta.json"
-        docs_path = base / "docs.jsonl"
-        
-        if not faiss_path.exists():
-            raise FileNotFoundError(f"FAISS index not found: {faiss_path}")
-        if not meta_path.exists():
-            raise FileNotFoundError(f"Meta file not found: {meta_path}")
-        if not docs_path.exists():
-            raise FileNotFoundError(f"Docs file not found: {docs_path}")
-        
-        self.index = faiss.read_index(str(faiss_path))
-        self.meta = json.loads(meta_path.read_text(encoding="utf-8"))        
-        #self.meta = json.loads(META_PATH.read_text(encoding="utf-8"))
-        
-        # 문서 맵(id -> record)
+        # ---- 문서 데이터 로드 (Lookup용) ----
+        # 검색 후 원본 텍스트나 메타데이터를 빠르게 찾기 위해 메모리에 로드
+        if not DOCS_PATH.exists():
+            raise FileNotFoundError(f"Docs file not found: {DOCS_PATH}")
+
         self.docs: Dict[str, Dict[str, Any]] = {}
-        with open(docs_path, "r", encoding="utf-8") as f:
+        with open(DOCS_PATH, "r", encoding="utf-8") as f:
             for line in f:
-                if not line.strip():
-                    continue
+                if not line.strip(): continue
                 r = json.loads(line)
                 self.docs[r["id"]] = r
+
+        # ---- 매핑 및 룩업 테이블 구축 (확장용) ----
+        self.enfor_to_law = {}
+        self.law_to_enfor = defaultdict(list)
         
-       
-         # ---- 리랭커 (지연 로드) ----
+        if MAPPING_PATH.exists():
+            with open(MAPPING_PATH, "r", encoding="utf-8") as f:
+                self.enfor_to_law = json.load(f)
+            for enfor_key, law_list in self.enfor_to_law.items():
+                for law_key in law_list:
+                    self.law_to_enfor[law_key].append(enfor_key)
+        
+        # 조문 단위 그룹핑
+        self.article_lookup = defaultdict(list)
+        for doc_id, doc in self.docs.items():
+            try:
+                base_key = doc_id.split("-")[0] if "-" in doc_id else doc_id
+                self.article_lookup[base_key].append(doc)
+            except:
+                pass
+        
+        # ---- OpenSearch (BM25) ----
+        self.client = OpenSearch(self.opensearch_url, timeout=60)
+        
+        # ---- ChromaDB (Dense) ----  
+        self.embedder = SentenceTransformer(self.embed_model_name)
+        
+        if not pathlib.Path(self.chroma_path).exists():
+             raise FileNotFoundError(f"ChromaDB dir not found: {self.chroma_path}")
+
+        print(f"[Info] Loading ChromaDB from {self.chroma_path}...")
+        self.chroma_client = chromadb.PersistentClient(
+            path=str(self.chroma_path), 
+            settings=Settings(allow_reset=True)
+        )
+        self.collection = self.chroma_client.get_collection("laws_bge_m3_v2")
+
+        # ---- 리랭커 (지연 로드) ----
         self._reranker: Optional[CrossEncoder] = None
         self._reranker_name = reranker_name or RERANK_MODEL
     
-    # ---------- 내부 유틸 ----------
-    
     @property
     def reranker(self) -> Optional[CrossEncoder]:
-        """CrossEncoder를 필요할 때만 로드"""
         if self._reranker is None and self._reranker_name:
             try:
                 self._reranker = CrossEncoder(self._reranker_name)
             except Exception:
-                # 리랭커 로딩 실패 시 비활성
                 self._reranker = None
         return self._reranker
 
     def _bm25(self, q: str, k: int) -> List[Dict[str, Any]]:
-        """OpenSearch BM25 상위 k 반환"""
+        """OpenSearch BM25 검색"""
         body = {
             "size": k,
             "query": {
@@ -120,189 +123,186 @@ class Retriever:
         resp = self.client.search(index=self.index_name, body=body)
         hits: List[Dict[str, Any]] = []
         for h in resp.get("hits", {}).get("hits", []):
-            src = h.get("_source", {})
-            # OpenSearch에서 가져온 필드 우선, 없으면 docs.jsonl 보조
             doc_id = h.get("_id")
+            # score와 기본 정보만 가져옴 (상세 내용은 self.docs에서 merge)
             rec = {
                 "id": doc_id,
                 "score": float(h.get("_score", 0.0)),
-                **({} if src is None else src),
             }
-            # 누락 필드 보강
+            # docs에 있는 정보 채우기
             if doc_id in self.docs:
-                for key in ("law_name", "clause_id", "title", "text"):
-                    rec.setdefault(key, self.docs[doc_id].get(key))
+                rec.update(self.docs[doc_id])
             hits.append(rec)
         return hits
 
     def _dense(self, q: str, k: int) -> List[Dict[str, Any]]:
-        """FAISS(Dense) 상위 k 반환 (IP/코사인류)"""
+        """ChromaDB Dense 검색"""
+        # 1. 쿼리 임베딩
         qv = self.embedder.encode([q], normalize_embeddings=True, convert_to_numpy=True)
-        D, I = self.index.search(qv, k)
+        
+        # 2. Chroma 검색
+        results = self.collection.query(
+            query_embeddings=qv.tolist(),
+            n_results=k,
+            include=["documents", "distances"] # 메타데이터는 docs.jsonl에서 가져옴
+        )
+        
         hits: List[Dict[str, Any]] = []
-        for i, idx in enumerate(I[0]):
-            if idx < 0:
-                continue
-            doc_id = self.meta["ids"][int(idx)]
-            rec = dict(self.docs.get(doc_id, {}))
-            rec["id"] = doc_id
-            rec["score"] = float(D[0][i])
-            hits.append(rec)
+        if results['ids']:
+            ids = results['ids'][0]
+            dists = results['distances'][0]
+            
+            for i, doc_id in enumerate(ids):
+                # Cosine Distance -> Similarity 변환 (1 - distance)
+                # ChromaDB의 'cosine' space는 1 - similarity를 반환함
+                score = 1.0 - dists[i]
+                
+                rec = {
+                    "id": doc_id,
+                    "score": float(score)
+                }
+                # 상세 정보 채우기
+                if doc_id in self.docs:
+                    rec.update(self.docs[doc_id])
+                hits.append(rec)
         return hits
     
-    # ----------------- 결합기 -----------------
+    def _expand_results(self, hits: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """검색 결과의 연관 법령/시행령을 찾아 강제로 추가 (Expansion)"""
+        expanded = []
+        seen_ids = set(h["id"] for h in hits)
+        
+        for doc in hits:
+            expanded.append(doc)
+            
+            # ID 파싱
+            current_id = doc["id"]
+            if "-" in current_id:
+                article_key = current_id.split("-")[0]
+            else:
+                article_key = current_id
+                
+            targets = []
+            if article_key in self.enfor_to_law:
+                targets.extend(self.enfor_to_law[article_key])
+            if article_key in self.law_to_enfor:
+                targets.extend(self.law_to_enfor[article_key])
+                
+            for t_key in targets:
+                # 해당 조문의 모든 항 가져오기
+                for related_doc in self.article_lookup.get(t_key, []):
+                    if related_doc["id"] not in seen_ids:
+                        new_doc = related_doc.copy()
+                        new_doc["score"] = doc["score"] * 0.95 # 부모 점수의 95%
+                        new_doc["is_expanded"] = True
+                        new_doc["parent_id"] = current_id
+                        
+                        expanded.append(new_doc)
+                        seen_ids.add(related_doc["id"])
+                        
+        return expanded
 
+    # --- 결합 로직 (RRF / Weighted) ---
     @staticmethod
-    def _rrf_fuse(
-        bm25_hits: List[Dict[str, Any]],
-        dense_hits: List[Dict[str, Any]],
-        k: int,
-        cand_factor: float,
-        k0: int = 60,
-    ) -> List[Dict[str, Any]]:
-        """
-        Reciprocal Rank Fusion.
-        반환: [{id, score}] 형태, 길이 ≈ cand_factor*k
-        """
-        # id -> best rank
-        ranks: Dict[str, float] = {}
+    def _rrf_fuse(bm25_hits, dense_hits, k, cand_factor, k0=60):
+        ranks = {}
         for r, h in enumerate(bm25_hits, start=1):
-            ranks[h["id"]] = ranks.get(h["id"], float("inf"))
-            ranks[h["id"]] = min(ranks[h["id"]], r)
+            ranks[h["id"]] = min(ranks.get(h["id"], float("inf")), r)
         for r, h in enumerate(dense_hits, start=1):
-            ranks[h["id"]] = ranks.get(h["id"], float("inf"))
-            ranks[h["id"]] = min(ranks[h["id"]], r)
+            ranks[h["id"]] = min(ranks.get(h["id"], float("inf")), r)
 
         fused = [{"id": did, "score": 1.0 / (k0 + rank)} for did, rank in ranks.items()]
         fused.sort(key=lambda x: x["score"], reverse=True)
-
+        
         n = max(1, int(round(k * max(1.0, cand_factor))))
         return fused[:n]
 
     @staticmethod
-    def _weighted_fuse(
-        bm25_hits: List[Dict[str, Any]],
-        dense_hits: List[Dict[str, Any]],
-        k: int,
-        alpha: float,
-        cand_factor: float,
-    ) -> List[Dict[str, Any]]:
-        """
-        가중합 결합: alpha * bm25_rank_score + (1-alpha) * dense_rank_score
-        - 점수 스케일 차이를 줄이기 위해 rank 기반 1/(k0+rank) 변환 사용
-        """
+    def _weighted_fuse(bm25_hits, dense_hits, k, alpha, cand_factor):
         k0 = 60.0
-
-        def to_rank_score(hits: List[Dict[str, Any]]) -> Dict[str, float]:
-            scores: Dict[str, float] = {}
-            for r, h in enumerate(hits, start=1):
-                scores[h["id"]] = 1.0 / (k0 + r)
-            return scores
+        def to_rank_score(hits):
+            return {h["id"]: 1.0/(k0 + i + 1) for i, h in enumerate(hits)}
 
         bm25_s = to_rank_score(bm25_hits)
         dense_s = to_rank_score(dense_hits)
-
-        fused: Dict[str, float] = {}
+        
+        fused = {}
         for did in set(list(bm25_s.keys()) + list(dense_s.keys())):
             s = alpha * bm25_s.get(did, 0.0) + (1.0 - alpha) * dense_s.get(did, 0.0)
             fused[did] = fused.get(did, 0.0) + s
-
+            
         out = [{"id": did, "score": sc} for did, sc in fused.items()]
         out.sort(key=lambda x: x["score"], reverse=True)
         n = max(1, int(round(k * max(1.0, cand_factor))))
         return out[:n]
-    
-    # ----------------- 후처리 -----------------
 
-    def _merge(
-        self,
-        cand: List[Dict[str, Any]],
-        bm25_map: Optional[Dict[str, float]] = None,
-        dense_map: Optional[Dict[str, float]] = None,
-    ) -> List[Dict[str, Any]]:
-        """후보 id 목록에 문서 필드 붙이기 + 원점수(bm25/dense) 붙이기"""
-        out: List[Dict[str, Any]] = []
+    def _merge(self, cand, bm25_map=None, dense_map=None):
+        out = []
         for c in cand:
             did = c["id"]
+            # self.docs에서 원본 데이터 조회
             base = self.docs.get(did, {})
             rec = {
                 "id": did,
-                "score": float(c.get("score", 0.0)),  # 결합 점수 또는(리랭크 ON 시) 리랭크 점수
+                "score": float(c.get("score", 0.0)),
                 "law_name": base.get("law_name"),
                 "clause_id": base.get("clause_id"),
                 "title": base.get("title"),
                 "text": base.get("text"),
             }
-            # 원점수(있으면 그대로 노출, 없으면 None)
-            if bm25_map is not None:
-                rec["bm25_score"] = float(bm25_map.get(did)) if did in bm25_map else None
-            if dense_map is not None:
-                rec["dense_cosine"] = float(dense_map.get(did)) if did in dense_map else None
+            if bm25_map: rec["bm25_score"] = bm25_map.get(did)
+            if dense_map: rec["dense_cosine"] = dense_map.get(did)
             out.append(rec)
         return out
-    
-    # ----------------- 공개 API -----------------
 
+    # --- 메인 검색 함수 ---
     def search(
         self,
         q: str,
         *,
         rerank: bool = True,
         k: int = FINAL_K,
-        method: Optional[str] = None,          # "rrf" | "weighted" | None(환경설정 기본값)
-        alpha: Optional[float] = None,         # weighted일 때 bm25 비중(0~1)
-        cand_factor: Optional[float] = None,   # None이면 RERANK_CAND_FACTOR 사용
+        method: Optional[str] = None,
+        alpha: Optional[float] = None,
+        cand_factor: Optional[float] = None,
     ) -> List[Dict[str, Any]]:
-        """
-        하이브리드 검색.
-        1) BM25/Dense를 충분히 크게 가져온 뒤(cand_factor*k 이상),
-        2) 결합(기본: config.SEARCH_METHOD),
-        3) (선택) CrossEncoder 리랭크 후 Top-k 반환.
-        """
-        # cand_factor 기본값 보정
-        if cand_factor is None:
-            cand_factor = RERANK_CAND_FACTOR
-
-        # 후보 수 결정 (BM25/Dense 개별 k는 최소 BM25_K/DENSE_K 이상)
-        req_n = max(1, int(round(k * max(1.0, cand_factor))))        
         
-        bm25_k = max(BM25_K, req_n)
-        dense_k = max(DENSE_K, req_n)
+        if cand_factor is None: cand_factor = RERANK_CAND_FACTOR
+        
+        # 확장 고려하여 2배수로 검색
+        req_n = max(1, int(round(k * max(1.0, cand_factor))))
+        bm25_k = max(BM25_K, req_n * 2)
+        dense_k = max(DENSE_K, req_n * 2)
 
-        # 1) 개별 검색
+        # 1. 개별 검색
         bm25 = self._bm25(q, k=bm25_k)
         dense = self._dense(q, k=dense_k)
         
-        # 추가: 원점수 맵(id -> score) 구성
-        bm25_map = {h["id"]: float(h.get("score", 0.0)) for h in bm25 if h.get("id")}
-        dense_map = {h["id"]: float(h.get("score", 0.0)) for h in dense if h.get("id")}
-               
-        # 2) 결합 방식 결정
-        #   - 인자 > 환경변수 > 기본 "rrf"
-        method = (method or SEARCH_METHOD or "rrf").lower()
-        
-        if method.startswith("weight"):
-            a = LAMBDA_BM25 if alpha is None else alpha
-            try:
-                a = float(a)
-            except Exception:
-                a = 0.5                
-            a = max(0.0, min(1.0, a))
-            fused = self._weighted_fuse(bm25, dense, k=k, alpha=a, cand_factor=cand_factor)
-        else:
-            fused = self._rrf_fuse(bm25, dense, k=k, cand_factor=cand_factor)
-                
-        # 3) 병합(문서필드 + 원점수 주입)
-        merged = self._merge(fused, bm25_map=bm25_map, dense_map=dense_map)
+        # 2. 확장 (Expansion)
+        bm25 = self._expand_results(bm25)
+        dense = self._expand_results(dense)
 
-        # 3) 리랭크
-        do_rerank = bool(rerank and USE_RERANK and self.reranker is not None)
-        if do_rerank:                   
-            # CrossEncoder는 쿼리-문서 쌍 점수↑
+        # 원점수 기록
+        bm25_map = {h["id"]: h.get("score", 0.0) for h in bm25}
+        dense_map = {h["id"]: h.get("score", 0.0) for h in dense}
+
+        # 3. 결합
+        method = (method or SEARCH_METHOD or "rrf").lower()
+        if method.startswith("weight"):
+            a = alpha if alpha is not None else LAMBDA_BM25
+            fused = self._weighted_fuse(bm25, dense, k, a, cand_factor)
+        else:
+            fused = self._rrf_fuse(bm25, dense, k, cand_factor)
+            
+        # 4. 병합
+        merged = self._merge(fused, bm25_map, dense_map)
+
+        # 5. 리랭크
+        if rerank and USE_RERANK and self.reranker:
             pairs = [(q, h["text"] or "") for h in merged]
             scores = self.reranker.predict(pairs)
             for h, s in zip(merged, scores):
-                h["score"] = float(s)    # bm25_score/dense_cosine은 그대로 남음
+                h["score"] = float(s)
             merged.sort(key=lambda x: x["score"], reverse=True)
-
+            
         return merged[:k]
