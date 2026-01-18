@@ -1,7 +1,7 @@
 version: '3'
 services:
   opensearch:
-    image: opensearchproject/opensearch:2.11.0  # 버전 명시 권장
+    image: opensearchproject/opensearch:2.11.0    # 버전 명시 권장
     container_name: opensearch-node
     environment:
       - discovery.type=single-node
