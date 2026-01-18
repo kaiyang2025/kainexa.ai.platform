@@ -27,11 +27,7 @@ MAPPING_PATH = INDEX_DIR / "law_enfor_mapping.json"
 
 class Retriever:    
     """
-    하이브리드 검색기 (RRF 메타데이터 보존 버그 수정판 + 메서드 호출 오류 수정)
-    - OpenSearch(BM25) + ChromaDB(Dense)
-    - 문맥 확장(Expansion): 법령 <-> 시행령 자동 연결
-    - 결합: RRF (메타데이터 보존)
-    - 리랭크: CrossEncoder + Family Grouping
+    하이브리드 검색기 (최종 수정: RRF 메서드 호출 오류 해결 + 메타데이터 보존)
     """
     def __init__(self,
         opensearch_url: Optional[str] = None,
@@ -109,6 +105,7 @@ class Retriever:
         return self._reranker
 
     def _bm25(self, q: str, k: int) -> List[Dict[str, Any]]:
+        """OpenSearch BM25 검색"""
         body = {
             "size": k,
             "query": {
@@ -134,6 +131,7 @@ class Retriever:
         return hits
 
     def _dense(self, q: str, k: int) -> List[Dict[str, Any]]:
+        """ChromaDB Dense 검색"""
         qv = self.embedder.encode([q], normalize_embeddings=True, convert_to_numpy=True)
         results = self.collection.query(
             query_embeddings=qv.tolist(),
@@ -160,8 +158,7 @@ class Retriever:
         processed_ids = set() 
         
         for doc in hits:
-            if doc["id"] in processed_ids:
-                continue
+            if doc["id"] in processed_ids: continue
             
             expanded.append(doc)
             processed_ids.add(doc["id"])
@@ -180,8 +177,7 @@ class Retriever:
                 
             for t_key in targets:
                 for related_doc in self.article_lookup.get(t_key, []):
-                    if related_doc["id"] in processed_ids:
-                        continue
+                    if related_doc["id"] in processed_ids: continue
                         
                     new_doc = related_doc.copy()
                     if article_key in self.law_to_enfor:
@@ -210,16 +206,15 @@ class Retriever:
             if doc["id"] in seen_ids: continue
 
             is_child = doc.get("is_expanded") and "parent_id" in doc
-            parent_exists_in_candidates = False
+            parent_exists = False
             
             if is_child:
                 for d in candidates:
                     if d["id"] == doc["parent_id"]:
-                        parent_exists_in_candidates = True
+                        parent_exists = True
                         break
             
-            if is_child and parent_exists_in_candidates:
-                continue
+            if is_child and parent_exists: continue
 
             final_res.append(doc)
             seen_ids.add(doc["id"])
@@ -236,41 +231,32 @@ class Retriever:
         
         return final_res
 
-    # --- 결합 로직 (RRF - 메타데이터 보존 수정) ---
+    # --- 결합 로직 (RRF) ---
     @staticmethod
     def _rrf_fuse(bm25_hits, dense_hits, k, cand_factor, k0=60):
         ranks = {}
-        # [핵심 수정] 메타데이터(parent_id 등)를 보존하기 위한 임시 저장소
-        meta_storage = {}
+        meta_storage = {} # 메타데이터 보존용
 
-        # 1. BM25 순위 계산 및 메타데이터 캡처
+        # 1. BM25
         for r, h in enumerate(bm25_hits, start=1):
             ranks[h["id"]] = min(ranks.get(h["id"], float("inf")), r)
             if h.get("is_expanded"):
-                meta_storage[h["id"]] = {
-                    "is_expanded": True,
-                    "parent_id": h.get("parent_id")
-                }
+                meta_storage[h["id"]] = {"is_expanded": True, "parent_id": h.get("parent_id")}
 
-        # 2. Dense 순위 계산 및 메타데이터 캡처
+        # 2. Dense
         for r, h in enumerate(dense_hits, start=1):
             ranks[h["id"]] = min(ranks.get(h["id"], float("inf")), r)
             if h.get("is_expanded") and h["id"] not in meta_storage:
-                meta_storage[h["id"]] = {
-                    "is_expanded": True,
-                    "parent_id": h.get("parent_id")
-                }
+                meta_storage[h["id"]] = {"is_expanded": True, "parent_id": h.get("parent_id")}
 
-        # 3. 융합 (Fused)
+        # 3. Fusion
         fused = []
         for did, rank in ranks.items():
             score = 1.0 / (k0 + rank)
             item = {"id": did, "score": score}
-            
-            # [핵심 수정] 저장해둔 메타데이터를 다시 주입
+            # 메타데이터 복구
             if did in meta_storage:
                 item.update(meta_storage[did])
-            
             fused.append(item)
 
         fused.sort(key=lambda x: x["score"], reverse=True)
@@ -288,7 +274,6 @@ class Retriever:
                 "clause_id": base.get("clause_id"),
                 "title": base.get("title"),
                 "text": base.get("text"),
-                # RRF 결과(cand)에 메타데이터가 있어야 여기서도 살아남음
                 "is_expanded": c.get("is_expanded", False),
                 "parent_id": c.get("parent_id"), 
             }
@@ -297,49 +282,35 @@ class Retriever:
             out.append(rec)
         return out
 
-    # --- 공통 검색/RRF 모듈 (오류 수정) ---
+    # --- [수정] 공통 모듈 (AttributeError 수정) ---
     def _retrieve_and_rrf(self, query: str, top_k: int) -> List[Dict[str, Any]]:
         """
-        [수정] 검색(BM25+Dense) -> 확장 -> RRF 병합까지 수행
-        이전 코드에서 self.bm25.search()를 호출하여 에러가 났던 부분을
-        self._bm25() (내부 메서드) 호출로 수정함.
+        검색(BM25+Dense) -> 확장 -> RRF 병합
         """
-        # 1. 검색 (클래스 내부 메서드 _bm25, _dense 사용)
+        # [핵심 수정] self.bm25.search -> self._bm25 (내부 메서드 사용)
         bm25_res = self._bm25(query, k=top_k*3)
         dense_res = self._dense(query, k=top_k*3)
         
-        # 2. 확장 (Expansion)
         bm25_expanded = self._expand_results(bm25_res)
         dense_expanded = self._expand_results(dense_res)
         
-        # 3. RRF 병합 (메타데이터 보존 로직 포함)
         fused = self._rrf_fuse(bm25_expanded, dense_expanded, k=60, cand_factor=1.0)
         
-        # 4. 병합 (텍스트 등 상세정보 채우기)
-        # 여기서 _merge를 호출해야 리랭커에 넘길 때 text 필드가 존재함
+        # [핵심] 리랭커 전달 전 텍스트 필드 채우기 위해 _merge 필수 호출
         merged = self._merge(fused)
-        
         return merged
 
     # --- 메인 검색 함수 ---
     def search(
-        self,
-        q: str,
-        *,
-        rerank: bool = True,
-        k: int = FINAL_K,
-        method: Optional[str] = None, 
-        alpha: Optional[float] = None,
-        cand_factor: Optional[float] = None,
+        self, q: str, *, rerank: bool = True, k: int = FINAL_K, 
+        method: Optional[str] = None, alpha: Optional[float] = None, cand_factor: Optional[float] = None,
     ) -> List[Dict[str, Any]]:
         
-        # 1. RRF 단계까지 수행 (수정된 공통 모듈 사용)
-        # _retrieve_and_rrf 내부에서 확장 및 기본 병합이 완료됨
+        # 1. RRF 및 병합 수행
         merged_candidates = self._retrieve_and_rrf(q, k)
 
-        # 5. 리랭크 & 그룹핑
+        # 2. 리랭크 & 그룹핑
         if rerank and USE_RERANK and self.reranker:
-            # 리랭킹 후보군: 상위 150개 (자식 문서 포함 보장)
             candidates = merged_candidates[:150] 
             
             pairs = [(q, h["text"] or "") for h in candidates]
@@ -347,15 +318,12 @@ class Retriever:
             for h, s in zip(candidates, scores):
                 h["score"] = float(s)
             
-            # 점수순 1차 정렬
             candidates.sort(key=lambda x: x["score"], reverse=True)
             
-            # [최종 단계] parent_id가 있어야 그룹핑이 작동함
+            # 최종 그룹핑
             final_res = self._apply_family_grouping(candidates)
-            
             return final_res[:k]
         
         else:
-            # 리랭크 안 하면 RRF 점수순 반환
             merged_candidates.sort(key=lambda x: x["score"], reverse=True)
             return merged_candidates[:k]
