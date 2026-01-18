@@ -20,8 +20,15 @@ def build_prompt(query: str, contexts: List[dict]):
     header = SYSTEM_PROMPT.strip()
     ctx_lines = []
     for c in contexts:
-        badge = f"[{c['law_name']} {c['clause_id']}]"
-        snippet = c["text"].strip().replace("\n", " ")
+        # [수정] law_name이나 clause_id가 None일 경우 대비
+        law = c.get('law_name') or "법령"
+        clause = c.get('clause_id') or ""
+        badge = f"[{law} {clause}]"
+        
+        # [수정] ★ 핵심 에러 수정: text가 None이면 빈 문자열로 처리
+        raw_text = c.get("text") or "" 
+        snippet = raw_text.strip().replace("\n", " ")
+        
         ctx_lines.append(f"- {badge} {snippet}")
     ctx = "\n".join(ctx_lines)
     return f"""{header}
@@ -69,6 +76,13 @@ def answer(req: AnswerRequest):
     hits = retriever.search(req.query, rerank=req.rerank, k=req.k, cand_factor=cf)
     prompt = build_prompt(req.query, hits)
     text = call_llm(prompt, req.gen_backend, req.gen_model)
-    cits = [Citation(law=h["law_name"], clause_id=h["clause_id"]) for h in hits]
+    
+    # [수정] Citation 생성 시에도 None 체크
+    cits = []
+    for h in hits:
+        law = h.get("law_name") or "Unknown"
+        clause = h.get("clause_id") or ""
+        cits.append(Citation(law=law, clause_id=clause))
+        
     contexts = hits if req.include_context else None
     return AnswerResponse(answer=text, citations=cits, contexts=contexts)
