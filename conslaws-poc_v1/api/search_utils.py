@@ -27,11 +27,11 @@ MAPPING_PATH = INDEX_DIR / "law_enfor_mapping.json"
 
 class Retriever:    
     """
-    하이브리드 검색기 (주피터 노트북 V2.0 로직 동기화 버전)
+    하이브리드 검색기 (주피터 노트북 V2.0 로직 완전 동기화)
     - OpenSearch(BM25) + ChromaDB(Dense)
-    - 문맥 확장(Expansion): 법령 <-> 시행령 자동 연결
+    - 문맥 확장(Expansion): 법령 <-> 시행령 자동 연결 (부모 뒤에 자식 강제 배치)
     - 결합: RRF
-    - 리랭크: CrossEncoder + Family Grouping (부모-자식 정렬 보장)
+    - 리랭크: CrossEncoder + Family Grouping
     """
     def __init__(self,
         opensearch_url: Optional[str] = None,
@@ -162,14 +162,18 @@ class Retriever:
     def _expand_results(self, hits: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         [노트북 로직 이식] 검색 결과 확장
-        검색된 문서(부모)가 있으면 연관된 자식(시행령)을 바로 뒤에 붙여줌
+        - 중요: 'processed_ids'를 빈 집합으로 시작하여, 하위권에 있는 자식 문서도 부모 바로 뒤로 끌어올림(Re-positioning)
         """
         expanded = []
-        seen_ids = set(h["id"] for h in hits)
+        processed_ids = set() # 초기화: 빈 집합 (hits의 ID를 미리 넣지 않음!)
         
         for doc in hits:
-            # 1. 원본 문서 추가
+            # 1. 현재 문서(부모) 처리
+            if doc["id"] in processed_ids:
+                continue
+            
             expanded.append(doc)
+            processed_ids.add(doc["id"])
             
             # 2. 연관 문서(가족) 찾기
             current_id = doc["id"]
@@ -186,30 +190,35 @@ class Retriever:
             if article_key in self.law_to_enfor:
                 targets.extend(self.law_to_enfor[article_key])
                 
+            # 3. 자식 문서 강제 삽입 (Injection)
             for t_key in targets:
-                # 조문 단위 lookup에서 가져옴
                 for related_doc in self.article_lookup.get(t_key, []):
-                    if related_doc["id"] not in seen_ids:
-                        new_doc = related_doc.copy()
-                        # 부모 점수의 95% 부여 -> RRF에서 부모 근처에 오도록 유도
-                        base_score = doc.get("score", 0.0)
-                        if base_score == 0.0: base_score = 0.5
-                        new_doc["score"] = base_score * 0.95 
+                    # 이미 처리된 문서(상위권에 있었던 문서)는 건너뛰기
+                    if related_doc["id"] in processed_ids:
+                        continue
                         
-                        new_doc["is_expanded"] = True
-                        # 만약 내가 법령(부모)이고 상대가 시행령(자식)이면 parent_id 설정
-                        if article_key in self.law_to_enfor:
-                            new_doc["parent_id"] = current_id
-                        
-                        expanded.append(new_doc)
-                        seen_ids.add(related_doc["id"])
+                    new_doc = related_doc.copy()
+                    
+                    # 부모가 법령이면, 자식(시행령)에게 부모 ID 부여
+                    if article_key in self.law_to_enfor:
+                        new_doc["parent_id"] = current_id
+                    
+                    # 점수 보정 (부모 점수의 95% -> 부모 바로 뒤에 위치하도록 유도)
+                    base_score = doc.get("score", 0.0)
+                    if base_score == 0.0: base_score = 0.5
+                    new_doc["score"] = base_score * 0.95 
+                    new_doc["is_expanded"] = True
+                    
+                    # ★ 리스트에 추가 (부모 바로 뒤)
+                    expanded.append(new_doc)
+                    processed_ids.add(related_doc["id"])
                         
         return expanded
 
     def _apply_family_grouping(self, candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         [노트북 로직 이식] 리랭킹 후 부모-자식 그룹핑
-        - 리랭킹 점수가 낮더라도, 부모(법령)가 나오면 자식(시행령)을 그 뒤에 강제로 붙임
+        - 리랭킹 점수가 낮아 흩어진 자식(시행령)을 부모(법령) 뒤로 다시 모음
         """
         final_res = []
         seen_ids = set()
@@ -224,19 +233,18 @@ class Retriever:
         for doc in candidates:
             if doc["id"] in seen_ids: continue
 
-            # 나는 자식인데, 내 부모가 아직 결과 리스트에 안 나왔다면? -> 대기(Skip)
-            # (부모가 나올 때 같이 출력되기 위함)
+            # 나는 자식인데, 내 부모가 후보군 어딘가에 있다면? -> 대기(Skip)
+            # (부모가 출력될 때 같이 출력되기 위함)
             is_child = doc.get("is_expanded") and "parent_id" in doc
             parent_exists_in_candidates = False
             
-            # 후보군 전체에 내 부모가 존재하는지 확인
             if is_child:
                 for d in candidates:
                     if d["id"] == doc["parent_id"]:
                         parent_exists_in_candidates = True
                         break
             
-            # 부모가 후보군에 있다면, 부모가 출력될 때까지 기다림
+            # 부모가 후보군에 살아있다면, 나는 부모 나올 때까지 기다림
             if is_child and parent_exists_in_candidates:
                 continue
 
@@ -252,7 +260,7 @@ class Retriever:
                 
                 for child in my_children:
                     if child["id"] not in seen_ids:
-                        # 점수를 부모보다 아주 조금 낮게 조정 (UI 표시 순서 보장용)
+                        # 점수를 부모보다 아주 조금 낮게 조정 (순서 보장용)
                         child["score"] = doc.get("score", 0) - 0.0001
                         final_res.append(child)
                         seen_ids.add(child["id"])
@@ -270,7 +278,7 @@ class Retriever:
 
         fused = [{"id": did, "score": 1.0 / (k0 + rank)} for did, rank in ranks.items()]
         fused.sort(key=lambda x: x["score"], reverse=True)
-        return fused # 전체 반환 (자르지 않음)
+        return fused # 전체 반환
 
     def _merge(self, cand, bm25_map=None, dense_map=None):
         out = []
@@ -284,7 +292,6 @@ class Retriever:
                 "clause_id": base.get("clause_id"),
                 "title": base.get("title"),
                 "text": base.get("text"),
-                # 내부 로직용 메타데이터 전달
                 "is_expanded": c.get("is_expanded", False),
                 "parent_id": c.get("parent_id"), 
             }
@@ -300,21 +307,21 @@ class Retriever:
         *,
         rerank: bool = True,
         k: int = FINAL_K,
-        method: Optional[str] = None, # 사용 안함 (RRF 고정)
+        method: Optional[str] = None, 
         alpha: Optional[float] = None,
         cand_factor: Optional[float] = None,
     ) -> List[Dict[str, Any]]:
         
+        # [수정] 확장(Expansion)을 위해 1차 후보군을 넉넉히 가져옵니다 (5배수 권장)
         req_n = max(1, int(round(k * max(1.0, cand_factor))))
         bm25_k = max(BM25_K, req_n * 5) 
         dense_k = max(DENSE_K, req_n * 5)
         
-        # 1. 개별 검색 (확장 고려하여 넉넉히)
-        # 노트북 로직: top_k * 3배수
+        # 1. 개별 검색
         bm25_res = self._bm25(q, k=bm25_k)
         dense_res = self._dense(q, k=dense_k)
         
-        # 2. 문맥 확장 (Expansion)
+        # 2. 문맥 확장 (Expansion) - 여기서 부모-자식 연결 및 순위 부스팅 발생
         bm25 = self._expand_results(bm25_res)
         dense = self._expand_results(dense_res)
 
@@ -330,8 +337,7 @@ class Retriever:
 
         # 5. 리랭크 (CrossEncoder) & 그룹핑
         if rerank and USE_RERANK and self.reranker:
-            # [노트북 핵심] 리랭킹 후보군을 대폭 늘림 (150개)
-            # 연관된 시행령들이 잘리지 않고 리랭커에게 전달되도록 함
+            # [노트북 핵심] 리랭킹 후보군을 150개로 고정하여 자식 문서 누락 방지
             candidates = merged[:150] 
             
             pairs = [(q, h["text"] or "") for h in candidates]
@@ -342,7 +348,7 @@ class Retriever:
             # 점수순 1차 정렬
             candidates.sort(key=lambda x: x["score"], reverse=True)
             
-            # [노트북 핵심] 부모-자식 그룹핑 적용
+            # [노트북 핵심] 부모-자식 그룹핑 (최종 순서 정리)
             final_res = self._apply_family_grouping(candidates)
             
             return final_res[:k]
