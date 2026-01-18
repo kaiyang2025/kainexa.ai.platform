@@ -27,7 +27,7 @@ MAPPING_PATH = INDEX_DIR / "law_enfor_mapping.json"
 
 class Retriever:    
     """
-    하이브리드 검색기 (RRF 메타데이터 보존 버그 수정판)
+    하이브리드 검색기 (RRF 메타데이터 보존 버그 수정판 + 메서드 호출 오류 수정)
     - OpenSearch(BM25) + ChromaDB(Dense)
     - 문맥 확장(Expansion): 법령 <-> 시행령 자동 연결
     - 결합: RRF (메타데이터 보존)
@@ -297,6 +297,30 @@ class Retriever:
             out.append(rec)
         return out
 
+    # --- 공통 검색/RRF 모듈 (오류 수정) ---
+    def _retrieve_and_rrf(self, query: str, top_k: int) -> List[Dict[str, Any]]:
+        """
+        [수정] 검색(BM25+Dense) -> 확장 -> RRF 병합까지 수행
+        이전 코드에서 self.bm25.search()를 호출하여 에러가 났던 부분을
+        self._bm25() (내부 메서드) 호출로 수정함.
+        """
+        # 1. 검색 (클래스 내부 메서드 _bm25, _dense 사용)
+        bm25_res = self._bm25(query, k=top_k*3)
+        dense_res = self._dense(query, k=top_k*3)
+        
+        # 2. 확장 (Expansion)
+        bm25_expanded = self._expand_results(bm25_res)
+        dense_expanded = self._expand_results(dense_res)
+        
+        # 3. RRF 병합 (메타데이터 보존 로직 포함)
+        fused = self._rrf_fuse(bm25_expanded, dense_expanded, k=60, cand_factor=1.0)
+        
+        # 4. 병합 (텍스트 등 상세정보 채우기)
+        # 여기서 _merge를 호출해야 리랭커에 넘길 때 text 필드가 존재함
+        merged = self._merge(fused)
+        
+        return merged
+
     # --- 메인 검색 함수 ---
     def search(
         self,
@@ -309,37 +333,21 @@ class Retriever:
         cand_factor: Optional[float] = None,
     ) -> List[Dict[str, Any]]:
         
-        # 확장 고려 5배수
-        req_n = max(1, int(round(k * max(1.0, cand_factor))))
-        bm25_k = max(BM25_K, req_n * 5) 
-        dense_k = max(DENSE_K, req_n * 5)
-        
-        # 1. 개별 검색
-        bm25_res = self._bm25(q, k=bm25_k)
-        dense_res = self._dense(q, k=dense_k)
-        
-        # 2. 문맥 확장 (여기서 parent_id가 생김)
-        bm25 = self._expand_results(bm25_res)
-        dense = self._expand_results(dense_res)
-
-        bm25_map = {h["id"]: h.get("score", 0.0) for h in bm25}
-        dense_map = {h["id"]: h.get("score", 0.0) for h in dense}
-
-        # 3. RRF 결합 (수정된 _rrf_fuse가 parent_id를 보존함)
-        fused = self._rrf_fuse(bm25, dense, k, cand_factor)
-        
-        # 4. 병합 (_merge가 parent_id를 최종 결과에 포함시킴)
-        merged = self._merge(fused, bm25_map, dense_map)
+        # 1. RRF 단계까지 수행 (수정된 공통 모듈 사용)
+        # _retrieve_and_rrf 내부에서 확장 및 기본 병합이 완료됨
+        merged_candidates = self._retrieve_and_rrf(q, k)
 
         # 5. 리랭크 & 그룹핑
         if rerank and USE_RERANK and self.reranker:
-            candidates = merged[:150] 
+            # 리랭킹 후보군: 상위 150개 (자식 문서 포함 보장)
+            candidates = merged_candidates[:150] 
             
             pairs = [(q, h["text"] or "") for h in candidates]
             scores = self.reranker.predict(pairs)
             for h, s in zip(candidates, scores):
                 h["score"] = float(s)
             
+            # 점수순 1차 정렬
             candidates.sort(key=lambda x: x["score"], reverse=True)
             
             # [최종 단계] parent_id가 있어야 그룹핑이 작동함
@@ -348,5 +356,6 @@ class Retriever:
             return final_res[:k]
         
         else:
-            merged.sort(key=lambda x: x["score"], reverse=True)
-            return merged[:k]
+            # 리랭크 안 하면 RRF 점수순 반환
+            merged_candidates.sort(key=lambda x: x["score"], reverse=True)
+            return merged_candidates[:k]
