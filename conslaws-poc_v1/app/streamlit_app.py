@@ -191,7 +191,7 @@ if submit and query:
                 score = ctx.get('score', 0)
                 
                 # 텍스트 길이 제한
-                short_text = text[:200] + "..." if len(text) > 200 else text
+                short_text = text[:150] + "..." if len(text) > 150 else text
                 
                 with cols[i % 2]:
                     with st.container(border=True):
