@@ -31,7 +31,7 @@ class Retriever:
     - OpenSearch(BM25) + ChromaDB(Dense)
     - 문맥 확장(Expansion): 법령 <-> 시행령 자동 연결 (부모 뒤에 자식 강제 배치)
     - 결합: RRF
-    - 리랭크: CrossEncoder + Family Grouping
+    - 리랭크: CrossEncoder + Family Grouping (부모-자식 정렬 보장)
     """
     def __init__(self,
         opensearch_url: Optional[str] = None,
@@ -162,13 +162,13 @@ class Retriever:
     def _expand_results(self, hits: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         [노트북 로직 이식] 검색 결과 확장
-        - 중요: 'processed_ids'를 빈 집합으로 시작하여, 하위권에 있는 자식 문서도 부모 바로 뒤로 끌어올림(Re-positioning)
+        - 중요: processed_ids를 빈 집합으로 시작해야, 하위권에 있는 자식 문서도 부모 뒤로 끌어올림(Re-positioning)
         """
         expanded = []
-        processed_ids = set() # 초기화: 빈 집합 (hits의 ID를 미리 넣지 않음!)
+        processed_ids = set() # [수정됨] 초기화: 빈 집합 (hits의 ID를 미리 넣지 않음!)
         
         for doc in hits:
-            # 1. 현재 문서(부모) 처리
+            # 1. 이미 처리된 문서(상위 순위에서 추가된 경우)는 건너뜀
             if doc["id"] in processed_ids:
                 continue
             
@@ -193,7 +193,7 @@ class Retriever:
             # 3. 자식 문서 강제 삽입 (Injection)
             for t_key in targets:
                 for related_doc in self.article_lookup.get(t_key, []):
-                    # 이미 처리된 문서(상위권에 있었던 문서)는 건너뛰기
+                    # 이미 처리된 문서인지 확인 (여기서 하위권에 있던 문서는 아직 처리 안 된 상태)
                     if related_doc["id"] in processed_ids:
                         continue
                         
