@@ -16,7 +16,7 @@ import pandas as pd
 # ---------------------------- 1. 설정 및 로그인 정보 ----------------------------
 # [보안] 사용자 정보 (요청하신 최신 정보 반영)
 ADMIN_USER = "kangwon"
-ADMIN_PASS = "1234"
+ADMIN_PASS = "kangwon2026!"
 
 API_DEFAULT = os.environ.get("API_URL", "http://localhost:8000")
 API = st.secrets.get("API_URL", API_DEFAULT)
