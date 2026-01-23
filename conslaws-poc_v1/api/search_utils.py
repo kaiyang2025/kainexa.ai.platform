@@ -276,7 +276,7 @@ Your  [Answer] must be written in Korean.
 [Answer]
 """)
         answer_chain = answer_prompt | llm | StrOutputParser()
-        response = answer_chain.invoke({"question": query, "context": joined_context[:3500]})
+        response = answer_chain.invoke({"question": query, "context": joined_context[:15000]})
         return response
 
     except Exception as e:

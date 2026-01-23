@@ -91,19 +91,50 @@ def main_app():
     """, unsafe_allow_html=True)
 
     # --- 사이드바 (로그인 후에만 보임) ---
-    with st.sidebar:
-        st.header("⚙️ 관리자 설정")
-        if st.button("로그아웃", use_container_width=True):
-            st.session_state['logged_in'] = False
-            st.rerun()
+ # [수정된 streamlit_app.py 사이드바 부분]
+
+with st.sidebar:
+    st.header("⚙️ 관리자 설정")
+    if st.button("로그아웃", use_container_width=True):
+        st.session_state['logged_in'] = False
+        st.rerun()
+        
+    with st.expander("검색/모델 옵션", expanded=True): # 잘 보이게 expanded=True
+        st.subheader("1. 검색 개수 설정")
+        
+        # [1] 최종 답변에 사용할 문서 개수 (Rerank Top-k)
+        k_val = st.slider(
+            "최종 결과 (Final Top-k)", 
+            min_value=3, max_value=10, value=5, 
+            help="LLM에게 전달할 최종 문서의 개수입니다."
+        )
+        
+        # [2] 1차 검색(BM25/Vector)에서 가져올 개수
+        # 직관적으로 숫자로 설정하게 하고, 내부적으로 cand_factor를 역산합니다.
+        default_retrieval = k_val * 4 # 기본값: 최종 개수의 4배 (예: 20개)
+        retrieval_k = st.slider(
+            "1차 검색 (Retrieval Top-k)", 
+            min_value=10, max_value=50, value=default_retrieval, step=5,
+            help="BM25와 벡터 검색이 각각 가져올 후보 문서의 개수입니다."
+        )
+        
+        # [내부 로직] API에 보낼 배수(factor) 계산
+        # search_utils 공식: fetch_k = k * factor * 2
+        # 따라서 factor = retrieval_k / (k * 2)
+        if k_val > 0:
+            cand_factor_val = retrieval_k / (k_val * 2)
+        else:
+            cand_factor_val = 2.0
             
-        with st.expander("검색/모델 옵션", expanded=False):
-            k_val = st.slider("Top-k", 3, 20, 6)
-            rerank_val = st.checkbox("리랭크 적용", value=True)
-            cand_factor_val = st.slider("후보군 배수", 1.0, 5.0, 2.0, 0.1)
-            st.divider()
-            gen_backend = st.selectbox("생성 백엔드", ["openai", "gpt-oss-120b"], index=0)
-            gen_model = st.text_input("모델명", value="openai/gpt-oss-120b")
+        st.caption(f"👉 BM25: {retrieval_k}개 / Dense: {retrieval_k}개")
+        st.caption(f"👉 Reranker 입력: 최대 {retrieval_k * 2}개 ➡ 출력: {k_val}개")
+
+        st.divider()
+        
+        st.subheader("2. 모델 설정")
+        rerank_val = st.checkbox("리랭크(Re-rank) 적용", value=True)
+        gen_backend = st.selectbox("생성 백엔드", ["custom", "dummy"], index=0)
+        gen_model = st.text_input("모델명", value="openai/gpt-oss-120b")
 
     # --- 메인 컨텐츠 ---
     st.markdown('<div class="main-title">🏗️ 건설 법령 Copilot </div>', unsafe_allow_html=True)
