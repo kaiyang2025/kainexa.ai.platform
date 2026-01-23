@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
 streamlit_app.py
-- 보안 강화: 로그인 전 사이드바 숨김 (main_app 내부로 이동)
-- 설정 고도화: Final Top-k 와 Retrieval Top-k 분리
-- 모델 기본값 변경: openai/gpt-oss-120b
+- 보안 강화: 로그인 전 사이드바 숨김
+- 설정 고도화: Final Top-k, RRF Input Top-k 설정 추가
+- 정보 표시: 사용 중인 Reranker 모델명 표시
 """
 from __future__ import annotations
 
@@ -14,19 +14,19 @@ import streamlit as st
 import pandas as pd
 
 # ---------------------------- 1. 설정 및 로그인 정보 ----------------------------
-# [보안] 사용자 정보 (요청하신 최신 정보 반영)
+# [보안] 사용자 정보
 ADMIN_USER = "kangwon"
-ADMIN_PASS = "kangwon2026!"
+ADMIN_PASS = "1234"
 
 API_DEFAULT = os.environ.get("API_URL", "http://localhost:8000")
 API = st.secrets.get("API_URL", API_DEFAULT)
 
-# 페이지 설정 (최상단)
+# 페이지 설정
 st.set_page_config(
     page_title="건설 법령 Copilot",
     page_icon="🏗️",
     layout="wide",
-    initial_sidebar_state="collapsed" # 초기 상태 닫힘
+    initial_sidebar_state="collapsed"
 )
 
 # ---------------------------- 2. 유틸 함수 ----------------------------
@@ -59,7 +59,6 @@ def stream_text(text: str):
 
 # ---------------------------- 3. 로그인 화면 로직 ----------------------------
 def login():
-    # 로그인 화면 CSS
     st.markdown("""
     <style>
         .login-container { margin-top: 100px; padding: 40px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); background-color: white; text-align: center;}
@@ -81,7 +80,7 @@ def login():
                 st.session_state['logged_in'] = True
                 st.success("로그인 성공! 잠시만 기다려주세요...")
                 time.sleep(0.5)
-                st.rerun() # 새로고침 -> main_app() 진입
+                st.rerun()
             else:
                 st.error("아이디 또는 비밀번호가 올바르지 않습니다.")
 
@@ -97,7 +96,7 @@ def main_app():
     </style>
     """, unsafe_allow_html=True)
 
-    # ★★★ 사이드바 로직을 main_app 함수 내부로 이동 (핵심 수정) ★★★
+    # ★★★ 사이드바 설정 (요청 사항 반영) ★★★
     with st.sidebar:
         st.header("⚙️ 관리자 설정")
         if st.button("로그아웃", use_container_width=True):
@@ -114,32 +113,42 @@ def main_app():
                 help="LLM에게 전달할 최종 문서의 개수입니다."
             )
             
-            # [2] 1차 검색(Retrieval) 개수 설정
-            default_retrieval = k_val * 4
+            # [2] RRF 검색 후보 수 (Retrieval Top-k) 설정 추가
+            # BM25와 Dense가 각각 가져올 문서의 수 (Reranker의 입력이 됨)
+            default_retrieval = 20 # 기본값
             retrieval_k = st.slider(
-                "1차 검색 (Retrieval Top-k)", 
+                "RRF 검색 후보 (Search Top-k)", 
                 min_value=10, max_value=50, value=default_retrieval, step=5,
-                help="BM25와 벡터 검색이 각각 가져올 후보 문서의 개수입니다."
+                help="BM25와 벡터 검색이 각각 가져와서 RRF로 결합할 후보 문서의 개수입니다. (많을수록 정확도 상승, 속도 저하)"
             )
             
-            # [내부 로직] cand_factor 자동 계산
+            # [내부 로직] cand_factor 자동 계산 (API 규격 맞춤)
+            # search_utils 공식: fetch_k = k * factor * 2  => factor = fetch_k / (k * 2)
             if k_val > 0:
                 cand_factor_val = retrieval_k / (k_val * 2)
             else:
                 cand_factor_val = 2.0
                 
-            st.caption(f"👉 BM25: {retrieval_k}개 / Dense: {retrieval_k}개")
-            st.caption(f"👉 Reranker 입력: {retrieval_k * 2}개 ➡ 출력: {k_val}개")
+            st.caption(f"👉 1차 검색: BM25({retrieval_k}) + Dense({retrieval_k})")
+            st.caption(f"👉 RRF 결합: 최대 {retrieval_k * 2}개 후보")
+            st.caption(f"👉 최종 선택: 상위 {k_val}개")
 
             st.divider()
             
             st.subheader("2. 모델 설정")
+            
+            # 리랭크 옵션 및 모델명 표시
             rerank_val = st.checkbox("리랭크(Re-rank) 적용", value=True)
+            # [추가] 리랭커 모델명 표시 (읽기 전용)
+            st.text_input("Rerank 모델", value="BAAI/bge-reranker-v2-m3", disabled=True)
+            
+            st.divider()
+            
             gen_backend = st.selectbox("생성 백엔드", ["custom", "dummy"], index=0)
-            # 모델명 기본값 수정
-            gen_model = st.text_input("모델명", value="openai/gpt-oss-120b")
+            # LLM 모델명
+            gen_model = st.text_input("LLM 모델", value="openai/gpt-oss-120b")
 
-    # --- 메인 화면 구성 ---
+    # --- 메인 컨텐츠 ---
     st.markdown('<div class="main-title">🏗️ 건설 법령 Copilot </div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-title">건설산업기본법 및 하도급법 관련 질문을 입력하세요.</div>', unsafe_allow_html=True)
 
@@ -175,12 +184,11 @@ def main_app():
                 
                 st.caption(f"⏱️ {latency:.2f}초 | 문서: {len(contexts)}건")
                 
-                # --- 근거 법령 표시 (Top 5) ---
+                # --- 근거 법령 표시 (설정된 k개수만큼) ---
                 st.subheader("📚 근거 법령")
                 if not contexts:
                     st.info("참조된 법령이 없습니다.")
                 else:
-                    # 화면 표시 개수: k_val 설정값만큼 보여줌 (최대 5개~10개)
                     top_contexts = contexts[:k_val]
                     cols = st.columns(2)
                     
@@ -202,7 +210,6 @@ def main_app():
                 with st.expander("🧐 전체 문맥 상세보기"):
                     if contexts:
                         df = pd.DataFrame(contexts)
-                        # 컬럼 존재 여부 확인 후 선택
                         display_cols = ["law_name", "clause_id", "title", "fused_score", "text"]
                         final_cols = [c for c in display_cols if c in df.columns]
                         st.dataframe(df[final_cols], use_container_width=True, hide_index=True)
@@ -210,11 +217,9 @@ def main_app():
                         st.write("데이터 없음")
 
 # ---------------------------- 5. 앱 실행 진입점 ----------------------------
-# 세션 초기화
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
 
-# 상태 분기
 if not st.session_state['logged_in']:
     login()
 else:
