@@ -12,12 +12,15 @@ app = FastAPI(title="Construction Law RAG API")
 # 요청 데이터 모델 (Streamlit에서 보내는 데이터와 일치)
 class QueryRequest(BaseModel):
     query: str
-    k: int = 5
+    k: int = 5                  # Final Output 개수
+    bm25_k: int = 20            # [추가] BM25 후보 수
+    dense_k: int = 20           # [추가] Dense 후보 수
+    rerank_input_k: int = 50    # [추가] Rerank 입력 후보 수
     rerank: bool = True
-    cand_factor: float = 2.0
     include_context: bool = True
-    gen_backend: str = "custom"  # 'openai' or 'dummy' or 'custom'
+    gen_backend: str = "custom"
     gen_model: str = "openai/gpt-oss-120b"
+    # cand_factor 제거
 
 # 응답 데이터 모델
 class AnswerResponse(BaseModel):
@@ -28,15 +31,15 @@ class AnswerResponse(BaseModel):
 @app.post("/answer", response_model=AnswerResponse)
 async def get_answer(req: QueryRequest):
     start_time = time.time()
-    
     try:
-        # 1. 문서 검색 (search_utils.py의 함수 호출)
-        # Streamlit에서 요청한 k개수만큼 검색
+        # [수정] search_docs 호출 시 파라미터 전달 변경
         contexts = search_docs(
             query=req.query,
             k=req.k,
-            rerank=req.rerank,
-            cand_factor=req.cand_factor
+            bm25_k=req.bm25_k,
+            dense_k=req.dense_k,
+            rerank_input_k=req.rerank_input_k,
+            rerank=req.rerank
         )
 
         # 2. 답변 생성 (search_utils.py의 함수 호출)

@@ -225,12 +225,21 @@ class RAGPipeline:
         self.reranker = CrossEncoderReRanker()
         print(">>> [System] 준비 완료.")
 
-    def search(self, query: str, k: int = 5, rerank: bool = True, cand_factor: float = 2.0) -> List[Dict]:
-        fetch_k = int(k * cand_factor * 2)
-        bm25_res = self.bm25.search(query, topn=fetch_k)
-        dense_res = self.dense.search(query, top_k=fetch_k)
+    def search(self, query: str, k: int = 5, bm25_k: int = 20, dense_k: int = 20, rerank_input_k: int = 50, rerank: bool = True) -> List[Dict]:
+        
+        # 1. 1차 검색 (Retrieval) - 각각 설정된 개수만큼 가져오기
+        bm25_res = self.bm25.search(query, topn=bm25_k)
+        dense_res = self.dense.search(query, top_k=dense_k)
+        
+        # 2. RRF 결합
         fused = rrf_merge(bm25_res, dense_res, k=60)
-        return self.reranker.rerank(query, fused, top_n=k) if rerank else fused[:k]
+        
+        # 3. Re-ranking
+        if rerank:
+            # Reranker에게 보낼 개수(rerank_input_k)만큼 자르고, 최종 k개 반환
+            return self.reranker.rerank(query, fused[:rerank_input_k], top_n=k)
+        else:
+            return fused[:k]
 
 _PIPELINE = None
 def get_pipeline():
@@ -241,8 +250,9 @@ def get_pipeline():
 # ---------------------------------------------------------
 # 5. API 함수 (외부 호출용)
 # ---------------------------------------------------------
-def search_docs(query: str, k: int = 5, rerank: bool = True, cand_factor: float = 2.0) -> List[Dict]:
-    return get_pipeline().search(query, k, rerank, cand_factor)
+def search_docs(query: str, k: int = 5, bm25_k: int = 20, dense_k: int = 20, rerank_input_k: int = 50, rerank: bool = True) -> List[Dict]:
+    return get_pipeline().search(query, k, bm25_k, dense_k, rerank_input_k, rerank)
+
 
 def generate_answer(query: str, contexts: List[Dict], backend: str = "custom", model: str = "openai/gpt-oss-120b") -> str:
     """
