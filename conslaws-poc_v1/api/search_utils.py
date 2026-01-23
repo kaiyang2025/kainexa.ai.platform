@@ -32,25 +32,28 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
 # ---------------------------------------------------------
-# 1. 설정 및 경로
+# 1. 설정 및 경로 (수정됨)
 # ---------------------------------------------------------
-# 프로젝트 루트 찾기
-ROOT = pathlib.Path(__file__).resolve().parent
+# search_utils.py는 'api' 폴더 안에 있으므로,
+# 부모의 부모 디렉토리가 프로젝트 루트가 됩니다.
+CURRENT_DIR = pathlib.Path(__file__).resolve().parent
+PROJECT_ROOT = CURRENT_DIR.parent  # /home/kai/.../conslaws-poc_v1/
 
-
-load_dotenv(ROOT / ".env", override=True)
+# .env 로드
+load_dotenv(PROJECT_ROOT / ".env", override=True)
 
 # 경로 설정
-DATA_PROC_DIR = ROOT / "data_proc"
-INDEX_DIR = ROOT / "index"
+DATA_PROC_DIR = PROJECT_ROOT / "data_proc"
+INDEX_DIR = PROJECT_ROOT / "index"
 CHROMA_DIR = INDEX_DIR / "chroma"
+
 DATA_FILE = DATA_PROC_DIR / "law_clauses.jsonl"
-GLOSSARY_FILE = ROOT / "data_raw" / "glossary.csv"
+GLOSSARY_FILE = PROJECT_ROOT / "data_raw" / "glossary.csv"
 CHROMA_COLLECTION_NAME = "laws_bge_m3_v2"
 
 # LLM 연결 정보 (환경변수 필수)
-LLM_BASE_URL = os.getenv("BASE_URL") # 예: http://192.168.x.x:8000/v1
-LLM_API_KEY = os.getenv("API_KEY")   # 내부 서버용 API Key (없으면 "EMPTY" 등)
+LLM_BASE_URL = os.getenv("BASE_URL") 
+LLM_API_KEY = os.getenv("API_KEY")
 
 # ---------------------------------------------------------
 # 2. 유틸리티 함수: RRF 결합
@@ -60,6 +63,7 @@ def rrf_merge(bm25_list: List[dict], dense_list: List[dict], k=60) -> List[dict]
     ranks = defaultdict(lambda: {"bm25_rank": None, "dense_rank": None, "fused_score": 0.0, "doc_data": {}})
     
     for i, item in enumerate(bm25_list):
+        # ID가 없으면 생성
         rid = str(item.get("id", f"{item.get('law_name')}|{item.get('clause_id')}"))
         ranks[rid]["bm25_rank"] = i + 1
         ranks[rid]["doc_data"] = item
@@ -124,9 +128,12 @@ class ConstructionBM25:
         return tokens
 
     def fit(self, jsonl_path: pathlib.Path):
+        # 경로 객체를 문자열로 변환하여 출력 (디버깅 용이)
         if not jsonl_path.exists():
-            print(f"[BM25] 데이터 파일 없음: {jsonl_path}")
+            print(f"[BM25] ❌ 데이터 파일 없음: {jsonl_path.absolute()}")
             return
+        
+        print(f"[BM25] 데이터 로드 중: {jsonl_path.name}")
         with open(jsonl_path, "r", encoding="utf-8") as f:
             self.docs = [json.loads(line) for line in f if line.strip()]
         
@@ -149,7 +156,9 @@ class DenseRetriever:
         self.collection = None
 
     def load_chroma(self, db_path: pathlib.Path, collection_name: str) -> bool:
-        if not db_path.exists(): return False
+        if not db_path.exists(): 
+            print(f"[Dense] ❌ ChromaDB 경로 없음: {db_path.absolute()}")
+            return False
         try:
             client = chromadb.PersistentClient(path=str(db_path), settings=Settings(allow_reset=True))
             self.collection = client.get_collection(collection_name)
@@ -203,10 +212,16 @@ class CrossEncoderReRanker:
 class RAGPipeline:
     def __init__(self):
         print(">>> [System] 파이프라인 초기화...")
+        # 데이터 파일 위치 출력 (디버깅용)
+        print(f"   - PROJECT_ROOT: {PROJECT_ROOT}")
+        print(f"   - DATA_FILE: {DATA_FILE}")
+        
         self.bm25 = ConstructionBM25(glossary_path=GLOSSARY_FILE)
         self.bm25.fit(DATA_FILE)
+        
         self.dense = DenseRetriever()
         self.dense.load_chroma(CHROMA_DIR, CHROMA_COLLECTION_NAME)
+        
         self.reranker = CrossEncoderReRanker()
         print(">>> [System] 준비 완료.")
 
@@ -236,11 +251,8 @@ def generate_answer(query: str, contexts: List[Dict], backend: str = "custom", m
     if not contexts:
         return "문서에서 정보를 찾을 수 없습니다."
 
-    # 1. 문맥 텍스트 구성 (ReRank Top Contexts 병합)
-    # LLM Context Limit을 고려해 3000자 정도로 자르는 것을 권장
     joined_context = "\n\n".join([f"[{i+1}] {doc.get('law_name')} {doc.get('clause_id')}\n{doc.get('text')}" for i, doc in enumerate(contexts)])
     
-    # 2. LLM 설정 (환경변수 기반 내부 서버 연결)
     if not LLM_BASE_URL:
         return "오류: BASE_URL 환경변수가 설정되지 않았습니다."
         
@@ -252,7 +264,6 @@ def generate_answer(query: str, contexts: List[Dict], backend: str = "custom", m
             temperature=0.1,
         )
 
-        # 3. 프롬프트 정의 (요청받은 Template)
         answer_prompt = ChatPromptTemplate.from_template("""
 You are a legal professional specializing in Korean construction law.
 [Answer] the user's [Question] based ONLY on the provided [Document].
@@ -264,10 +275,8 @@ Your  [Answer] must be written in Korean.
 
 [Answer]
 """)
-        
-        # 4. 체인 실행
         answer_chain = answer_prompt | llm | StrOutputParser()
-        response = answer_chain.invoke({"question": query, "context": joined_context[:3500]}) # 길이 제한 안전장치
+        response = answer_chain.invoke({"question": query, "context": joined_context[:3500]})
         return response
 
     except Exception as e:
@@ -280,11 +289,9 @@ if __name__ == "__main__":
     print(f"BASE_URL: {LLM_BASE_URL}")
     test_q = "하도급대금 직접지급 요건은?"
     
-    # 검색 테스트
     docs = search_docs(test_q, k=3)
     print(f"검색된 문서: {len(docs)}건")
     
-    # 답변 생성 테스트
     print("답변 생성 중...")
     ans = generate_answer(test_q, docs)
     print("="*50)
