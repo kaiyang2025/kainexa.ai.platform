@@ -1,329 +1,292 @@
 # -*- coding: utf-8 -*-
+"""
+search_utils.py
+- 검색 엔진: Kiwi+BM25(키워드), BGE-M3(벡터), CrossEncoder(리랭킹)
+- 답변 생성: 내부 구축형 LLM (OpenAI 호환 API)
+"""
+
+import os
 import json
+import re
 import pathlib
+import numpy as np
+import pandas as pd
+from typing import List, Dict, Any
+from collections import defaultdict
+from dotenv import load_dotenv
+
+# ---------------------------------------------------------
+# [라이브러리] 설치 필요:
+# pip install rank_bm25 kiwipiepy chromadb sentence_transformers langchain_openai langchain_core
+# ---------------------------------------------------------
+import torch
+from rank_bm25 import BM25Okapi
+from kiwipiepy import Kiwi
 import chromadb
 from chromadb.config import Settings
-from typing import List, Dict, Any, Optional
-from collections import defaultdict
-
-from opensearchpy import OpenSearch
 from sentence_transformers import SentenceTransformer, CrossEncoder
 
-from .config import (
-    OPENSEARCH_URL, OPENSEARCH_INDEX,
-    EMBED_MODEL, RERANK_MODEL,    
-    BM25_K, DENSE_K, FINAL_K,
-    RERANK_CAND_FACTOR,
-    LAMBDA_BM25, LAMBDA_DENSE,
-    SEARCH_METHOD, USE_RERANK,
-)
+# LangChain Imports
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
 
-# 경로 상수
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+# ---------------------------------------------------------
+# 1. 설정 및 경로
+# ---------------------------------------------------------
+# 프로젝트 루트 찾기
+ROOT = pathlib.Path(__file__).resolve().parent
+
+
+load_dotenv(ROOT / ".env", override=True)
+
+# 경로 설정
+DATA_PROC_DIR = ROOT / "data_proc"
 INDEX_DIR = ROOT / "index"
-DOCS_PATH = INDEX_DIR / "docs.jsonl"
 CHROMA_DIR = INDEX_DIR / "chroma"
-MAPPING_PATH = INDEX_DIR / "law_enfor_mapping.json"
+DATA_FILE = DATA_PROC_DIR / "law_clauses.jsonl"
+GLOSSARY_FILE = ROOT / "data_raw" / "glossary.csv"
+CHROMA_COLLECTION_NAME = "laws_bge_m3_v2"
 
-class Retriever:    
-    """
-    하이브리드 검색기 (최종 수정: RRF 메서드 호출 오류 해결 + 메타데이터 보존)
-    """
-    def __init__(self,
-        opensearch_url: Optional[str] = None,
-        index_name: Optional[str] = None,
-        embed_model_name: Optional[str] = None,
-        chroma_dir: Optional[str] = None, 
-        reranker_name: Optional[str] = None,
-    ):
-        # ---- 설정 ----
-        self.opensearch_url = opensearch_url or OPENSEARCH_URL
-        self.index_name = index_name or OPENSEARCH_INDEX
-        self.embed_model_name = embed_model_name or EMBED_MODEL
-        self.chroma_path = chroma_dir or CHROMA_DIR
-        
-        # ---- 1. 문서 데이터 로드 (Lookup용) ----
-        if not DOCS_PATH.exists():
-            raise FileNotFoundError(f"Docs file not found: {DOCS_PATH}")
+# LLM 연결 정보 (환경변수 필수)
+LLM_BASE_URL = os.getenv("BASE_URL") # 예: http://192.168.x.x:8000/v1
+LLM_API_KEY = os.getenv("API_KEY")   # 내부 서버용 API Key (없으면 "EMPTY" 등)
 
-        self.docs: Dict[str, Dict[str, Any]] = {}
-        with open(DOCS_PATH, "r", encoding="utf-8") as f:
-            for line in f:
-                if not line.strip(): continue
-                r = json.loads(line)
-                self.docs[r["id"]] = r
-
-        # ---- 2. 매핑 및 룩업 테이블 구축 (확장용) ----
-        self.enfor_to_law = {}
-        self.law_to_enfor = defaultdict(list)
-        
-        if MAPPING_PATH.exists():
-            with open(MAPPING_PATH, "r", encoding="utf-8") as f:
-                self.enfor_to_law = json.load(f)
-            # 역방향 인덱스 생성 (법 -> 시행령)
-            for enfor_key, law_list in self.enfor_to_law.items():
-                for law_key in law_list:
-                    self.law_to_enfor[law_key].append(enfor_key)
-        
-        # 조문 단위 그룹핑 (ID 검색용)
-        self.article_lookup = defaultdict(list)
-        for doc_id, doc in self.docs.items():
-            try:
-                # "제10조-①" -> "제10조" 키로 그룹핑
-                base_key = doc_id.split("-")[0] if "-" in doc_id else doc_id
-                self.article_lookup[base_key].append(doc)
-            except:
-                pass
-        
-        # ---- 3. OpenSearch (BM25) ----
-        self.client = OpenSearch(self.opensearch_url, timeout=60)
-        
-        # ---- 4. ChromaDB (Dense) ----  
-        self.embedder = SentenceTransformer(self.embed_model_name)
-        
-        if not pathlib.Path(self.chroma_path).exists():
-             print(f"[Warn] ChromaDB dir not found: {self.chroma_path}")
-        
-        print(f"[Info] Loading ChromaDB from {self.chroma_path}...")
-        self.chroma_client = chromadb.PersistentClient(
-            path=str(self.chroma_path), 
-            settings=Settings(allow_reset=True)
-        )
-        self.collection = self.chroma_client.get_collection("laws_bge_m3_v2")
-
-        # ---- 5. 리랭커 (지연 로드) ----
-        self._reranker: Optional[CrossEncoder] = None
-        self._reranker_name = reranker_name or RERANK_MODEL
+# ---------------------------------------------------------
+# 2. 유틸리티 함수: RRF 결합
+# ---------------------------------------------------------
+def rrf_merge(bm25_list: List[dict], dense_list: List[dict], k=60) -> List[dict]:
+    """Reciprocal Rank Fusion"""
+    ranks = defaultdict(lambda: {"bm25_rank": None, "dense_rank": None, "fused_score": 0.0, "doc_data": {}})
     
-    @property
-    def reranker(self) -> Optional[CrossEncoder]:
-        if self._reranker is None and self._reranker_name:
-            try:
-                self._reranker = CrossEncoder(self._reranker_name, max_length=512)
-            except Exception:
-                self._reranker = None
-        return self._reranker
+    for i, item in enumerate(bm25_list):
+        rid = str(item.get("id", f"{item.get('law_name')}|{item.get('clause_id')}"))
+        ranks[rid]["bm25_rank"] = i + 1
+        ranks[rid]["doc_data"] = item
 
-    def _bm25(self, q: str, k: int) -> List[Dict[str, Any]]:
-        """OpenSearch BM25 검색"""
-        body = {
-            "size": k,
-            "query": {
-                "multi_match": {
-                    "query": q,
-                    "fields": ["text^2", "title"],
-                    "type": "best_fields",
-                }
-            },
-            "_source": True,
-        }
-        resp = self.client.search(index=self.index_name, body=body)
-        hits: List[Dict[str, Any]] = []
-        for h in resp.get("hits", {}).get("hits", []):
-            doc_id = h.get("_id")
-            rec = {
-                "id": doc_id,
-                "score": float(h.get("_score", 0.0)),
-            }
-            if doc_id in self.docs:
-                rec.update(self.docs[doc_id])
-            hits.append(rec)
-        return hits
+    for i, item in enumerate(dense_list):
+        rid = str(item.get("id", f"{item.get('law_name')}|{item.get('clause_id')}"))
+        ranks[rid]["dense_rank"] = i + 1
+        if not ranks[rid]["doc_data"]: 
+            ranks[rid]["doc_data"] = item
 
-    def _dense(self, q: str, k: int) -> List[Dict[str, Any]]:
-        """ChromaDB Dense 검색"""
-        qv = self.embedder.encode([q], normalize_embeddings=True, convert_to_numpy=True)
-        results = self.collection.query(
-            query_embeddings=qv.tolist(),
-            n_results=k,
-            include=["documents", "distances"] 
-        )
-        hits: List[Dict[str, Any]] = []
+    fused_results = []
+    for rid, info in ranks.items():
+        score = 0.0
+        if info["bm25_rank"]: score += 1.0 / (k + info["bm25_rank"])
+        if info["dense_rank"]: score += 1.0 / (k + info["dense_rank"])
+        
+        doc = info["doc_data"].copy()
+        doc["fused_score"] = score
+        fused_results.append(doc)
+
+    fused_results.sort(key=lambda x: -x["fused_score"])
+    return fused_results
+
+# ---------------------------------------------------------
+# 3. 검색 엔진 클래스
+# ---------------------------------------------------------
+class ConstructionBM25:
+    """[Keyword Search] Kiwi + BM25"""
+    CIRCLED_TO_ARABIC = dict(zip("①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳", map(str, range(1, 21))))
+
+    def __init__(self, glossary_path: pathlib.Path = None):
+        self.kiwi = Kiwi()
+        self.bm25 = None
+        self.docs = []
+        if glossary_path and glossary_path.exists():
+            self._load_glossary(glossary_path)
+
+    def _load_glossary(self, path: pathlib.Path):
+        try:
+            df = pd.read_csv(path)
+            terms = df['term'].dropna().astype(str).str.strip().unique().tolist()
+            for term in terms:
+                if term: self.kiwi.add_user_word(term, tag='NNG', score=10)
+        except Exception:
+            pass
+
+    def _normalize(self, text: str) -> str:
+        text = re.sub(r"제\s*(\d+)\s*조\s*의\s*(\d+)", r"제\1조의\2", text)
+        text = re.sub(r"제\s*(\d+)\s*조", r"제\1조", text)
+        text = re.sub(r"제\s*(\d+)\s*항", r"제\1항", text)
+        for char, digit in self.CIRCLED_TO_ARABIC.items():
+            text = text.replace(char, digit)
+        return text
+
+    def tokenize(self, text: str) -> List[str]:
+        tokens = []
+        results = self.kiwi.analyze(self._normalize(text))
+        for res in results:
+            for token, tag, _, _ in res[0]:
+                if tag.startswith('N') or tag in ('SL', 'SN', 'XPN', 'XR'):
+                    tokens.append(token)
+        return tokens
+
+    def fit(self, jsonl_path: pathlib.Path):
+        if not jsonl_path.exists():
+            print(f"[BM25] 데이터 파일 없음: {jsonl_path}")
+            return
+        with open(jsonl_path, "r", encoding="utf-8") as f:
+            self.docs = [json.loads(line) for line in f if line.strip()]
+        
+        corpus_tokens = [self.tokenize(f'{d.get("clause_id", "")} {d.get("text", "")}') for d in self.docs]
+        self.bm25 = BM25Okapi(corpus_tokens, k1=1.2, b=0.75)
+        print(f"[BM25] 인덱싱 완료 ({len(self.docs)}건)")
+
+    def search(self, query: str, topn: int = 10) -> List[Dict]:
+        if not self.bm25: return []
+        scores = self.bm25.get_scores(self.tokenize(query))
+        top_indices = sorted(range(len(scores)), key=lambda i: -scores[i])[:topn]
+        return [dict(self.docs[i], bm25_score=float(scores[i])) for i in top_indices if scores[i] > 0]
+
+class DenseRetriever:
+    """[Vector Search] ChromaDB + BGE-M3"""
+    def __init__(self, model_name: str = "BAAI/bge-m3"):
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        print(f"[Dense] 모델 로딩: {model_name}")
+        self.model = SentenceTransformer(model_name, device=self.device, trust_remote_code=True)
+        self.collection = None
+
+    def load_chroma(self, db_path: pathlib.Path, collection_name: str) -> bool:
+        if not db_path.exists(): return False
+        try:
+            client = chromadb.PersistentClient(path=str(db_path), settings=Settings(allow_reset=True))
+            self.collection = client.get_collection(collection_name)
+            print(f"[Dense] ChromaDB 로드 성공 ({self.collection.count()}건)")
+            return True
+        except Exception as e:
+            print(f"[Dense] 로드 실패: {e}")
+            return False
+
+    def search(self, query: str, top_k: int = 5) -> List[Dict]:
+        if not self.collection: return []
+        q_emb = self.model.encode([query], normalize_embeddings=True, convert_to_numpy=True)[0]
+        results = self.collection.query(query_embeddings=[q_emb.tolist()], n_results=top_k, include=["documents", "metadatas", "distances"])
+        
+        parsed = []
         if results['ids']:
-            ids = results['ids'][0]
-            dists = results['distances'][0]
-            for i, doc_id in enumerate(ids):
-                score = 1.0 - dists[i]
-                rec = {
+            for i, doc_id in enumerate(results['ids'][0]):
+                parsed.append({
                     "id": doc_id,
-                    "score": float(score)
-                }
-                if doc_id in self.docs:
-                    rec.update(self.docs[doc_id])
-                hits.append(rec)
-        return hits
+                    "text": results['documents'][0][i],
+                    "dense_score": float(1.0 - results['distances'][0][i]),
+                    **results['metadatas'][0][i]
+                })
+        return parsed
+
+class CrossEncoderReRanker:
+    """[Re-Ranker] BGE-Reranker-v2-m3"""
+    def __init__(self, model_name="BAAI/bge-reranker-v2-m3"):
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        print(f"[Rerank] 모델 로딩: {model_name}")
+        self.model = CrossEncoder(model_name, device=self.device, max_length=512, trust_remote_code=True)
+
+    def rerank(self, query: str, candidates: List[dict], top_n=5) -> List[dict]:
+        if not candidates: return []
+        targets = candidates[:50]
+        pairs = [[query, f"{doc.get('law_name','')} {doc.get('text','')[:512]}"] for doc in targets]
+        
+        try:
+            scores = self.model.predict(pairs, batch_size=16, show_progress_bar=False)
+            scores = 1 / (1 + np.exp(-scores)) # Sigmoid
+            for i, s in enumerate(scores):
+                targets[i]["fused_score"] = float(s)
+            targets.sort(key=lambda x: -x["fused_score"])
+            return targets[:top_n]
+        except Exception:
+            return candidates[:top_n]
+
+# ---------------------------------------------------------
+# 4. 파이프라인 싱글톤
+# ---------------------------------------------------------
+class RAGPipeline:
+    def __init__(self):
+        print(">>> [System] 파이프라인 초기화...")
+        self.bm25 = ConstructionBM25(glossary_path=GLOSSARY_FILE)
+        self.bm25.fit(DATA_FILE)
+        self.dense = DenseRetriever()
+        self.dense.load_chroma(CHROMA_DIR, CHROMA_COLLECTION_NAME)
+        self.reranker = CrossEncoderReRanker()
+        print(">>> [System] 준비 완료.")
+
+    def search(self, query: str, k: int = 5, rerank: bool = True, cand_factor: float = 2.0) -> List[Dict]:
+        fetch_k = int(k * cand_factor * 2)
+        bm25_res = self.bm25.search(query, topn=fetch_k)
+        dense_res = self.dense.search(query, top_k=fetch_k)
+        fused = rrf_merge(bm25_res, dense_res, k=60)
+        return self.reranker.rerank(query, fused, top_n=k) if rerank else fused[:k]
+
+_PIPELINE = None
+def get_pipeline():
+    global _PIPELINE
+    if _PIPELINE is None: _PIPELINE = RAGPipeline()
+    return _PIPELINE
+
+# ---------------------------------------------------------
+# 5. API 함수 (외부 호출용)
+# ---------------------------------------------------------
+def search_docs(query: str, k: int = 5, rerank: bool = True, cand_factor: float = 2.0) -> List[Dict]:
+    return get_pipeline().search(query, k, rerank, cand_factor)
+
+def generate_answer(query: str, contexts: List[Dict], backend: str = "custom", model: str = "openai/gpt-oss-120b") -> str:
+    """
+    내부 LLM 서버를 사용하여 답변 생성
+    """
+    if not contexts:
+        return "문서에서 정보를 찾을 수 없습니다."
+
+    # 1. 문맥 텍스트 구성 (ReRank Top Contexts 병합)
+    # LLM Context Limit을 고려해 3000자 정도로 자르는 것을 권장
+    joined_context = "\n\n".join([f"[{i+1}] {doc.get('law_name')} {doc.get('clause_id')}\n{doc.get('text')}" for i, doc in enumerate(contexts)])
     
-    def _expand_results(self, hits: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        expanded = []
-        processed_ids = set() 
+    # 2. LLM 설정 (환경변수 기반 내부 서버 연결)
+    if not LLM_BASE_URL:
+        return "오류: BASE_URL 환경변수가 설정되지 않았습니다."
         
-        for doc in hits:
-            if doc["id"] in processed_ids: continue
-            
-            expanded.append(doc)
-            processed_ids.add(doc["id"])
-            
-            current_id = doc["id"]
-            if "-" in current_id:
-                article_key = current_id.split("-")[0]
-            else:
-                article_key = current_id
-                
-            targets = []
-            if article_key in self.enfor_to_law:
-                targets.extend(self.enfor_to_law[article_key])
-            if article_key in self.law_to_enfor:
-                targets.extend(self.law_to_enfor[article_key])
-                
-            for t_key in targets:
-                for related_doc in self.article_lookup.get(t_key, []):
-                    if related_doc["id"] in processed_ids: continue
-                        
-                    new_doc = related_doc.copy()
-                    if article_key in self.law_to_enfor:
-                        new_doc["parent_id"] = current_id
-                    
-                    base_score = doc.get("score", 0.0)
-                    if base_score == 0.0: base_score = 0.5
-                    new_doc["score"] = base_score * 0.95 
-                    new_doc["is_expanded"] = True
-                    
-                    expanded.append(new_doc)
-                    processed_ids.add(related_doc["id"])
-                        
-        return expanded
+    try:
+        llm = ChatOpenAI(
+            base_url=LLM_BASE_URL,
+            api_key=LLM_API_KEY if LLM_API_KEY else "EMPTY",
+            model=model,
+            temperature=0.1,
+        )
 
-    def _apply_family_grouping(self, candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        final_res = []
-        seen_ids = set()
+        # 3. 프롬프트 정의 (요청받은 Template)
+        answer_prompt = ChatPromptTemplate.from_template("""
+You are a legal professional specializing in Korean construction law.
+[Answer] the user's [Question] based ONLY on the provided [Document].
+Your [Answer] must refer only to the [Document] provided.
+Your  [Answer] must be written in Korean.
+
+[Document]{context}
+[Question]{question}
+
+[Answer]
+""")
         
-        children_map = defaultdict(list)
-        for doc in candidates:
-            if doc.get("is_expanded") and "parent_id" in doc:
-                children_map[doc["parent_id"]].append(doc)
+        # 4. 체인 실행
+        answer_chain = answer_prompt | llm | StrOutputParser()
+        response = answer_chain.invoke({"question": query, "context": joined_context[:3500]}) # 길이 제한 안전장치
+        return response
 
-        for doc in candidates:
-            if doc["id"] in seen_ids: continue
+    except Exception as e:
+        return f"답변 생성 중 오류가 발생했습니다: {str(e)}"
 
-            is_child = doc.get("is_expanded") and "parent_id" in doc
-            parent_exists = False
-            
-            if is_child:
-                for d in candidates:
-                    if d["id"] == doc["parent_id"]:
-                        parent_exists = True
-                        break
-            
-            if is_child and parent_exists: continue
-
-            final_res.append(doc)
-            seen_ids.add(doc["id"])
-            
-            if doc["id"] in children_map:
-                my_children = children_map[doc["id"]]
-                my_children.sort(key=lambda x: -x.get("score", 0))
-                
-                for child in my_children:
-                    if child["id"] not in seen_ids:
-                        child["score"] = doc.get("score", 0) - 0.0001
-                        final_res.append(child)
-                        seen_ids.add(child["id"])
-        
-        return final_res
-
-    # --- 결합 로직 (RRF) ---
-    @staticmethod
-    def _rrf_fuse(bm25_hits, dense_hits, k, cand_factor, k0=60):
-        ranks = {}
-        meta_storage = {} # 메타데이터 보존용
-
-        # 1. BM25
-        for r, h in enumerate(bm25_hits, start=1):
-            ranks[h["id"]] = min(ranks.get(h["id"], float("inf")), r)
-            if h.get("is_expanded"):
-                meta_storage[h["id"]] = {"is_expanded": True, "parent_id": h.get("parent_id")}
-
-        # 2. Dense
-        for r, h in enumerate(dense_hits, start=1):
-            ranks[h["id"]] = min(ranks.get(h["id"], float("inf")), r)
-            if h.get("is_expanded") and h["id"] not in meta_storage:
-                meta_storage[h["id"]] = {"is_expanded": True, "parent_id": h.get("parent_id")}
-
-        # 3. Fusion
-        fused = []
-        for did, rank in ranks.items():
-            score = 1.0 / (k0 + rank)
-            item = {"id": did, "score": score}
-            # 메타데이터 복구
-            if did in meta_storage:
-                item.update(meta_storage[did])
-            fused.append(item)
-
-        fused.sort(key=lambda x: x["score"], reverse=True)
-        return fused
-
-    def _merge(self, cand, bm25_map=None, dense_map=None):
-        out = []
-        for c in cand:
-            did = c["id"]
-            base = self.docs.get(did, {})
-            rec = {
-                "id": did,
-                "score": float(c.get("score", 0.0)),
-                "law_name": base.get("law_name"),
-                "clause_id": base.get("clause_id"),
-                "title": base.get("title"),
-                "text": base.get("text"),
-                "is_expanded": c.get("is_expanded", False),
-                "parent_id": c.get("parent_id"), 
-            }
-            if bm25_map: rec["bm25_score"] = bm25_map.get(did)
-            if dense_map: rec["dense_cosine"] = dense_map.get(did)
-            out.append(rec)
-        return out
-
-    # --- [수정] 공통 모듈 (AttributeError 수정) ---
-    def _retrieve_and_rrf(self, query: str, top_k: int) -> List[Dict[str, Any]]:
-        """
-        검색(BM25+Dense) -> 확장 -> RRF 병합
-        """
-        # [핵심 수정] self.bm25.search -> self._bm25 (내부 메서드 사용)
-        bm25_res = self._bm25(query, k=top_k*3)
-        dense_res = self._dense(query, k=top_k*3)
-        
-        bm25_expanded = self._expand_results(bm25_res)
-        dense_expanded = self._expand_results(dense_res)
-        
-        fused = self._rrf_fuse(bm25_expanded, dense_expanded, k=60, cand_factor=1.0)
-        
-        # [핵심] 리랭커 전달 전 텍스트 필드 채우기 위해 _merge 필수 호출
-        merged = self._merge(fused)
-        return merged
-
-    # --- 메인 검색 함수 ---
-    def search(
-        self, q: str, *, rerank: bool = True, k: int = FINAL_K, 
-        method: Optional[str] = None, alpha: Optional[float] = None, cand_factor: Optional[float] = None,
-    ) -> List[Dict[str, Any]]:
-        
-        # 1. RRF 및 병합 수행
-        merged_candidates = self._retrieve_and_rrf(q, k)
-
-        # 2. 리랭크 & 그룹핑
-        if rerank and USE_RERANK and self.reranker:
-            candidates = merged_candidates[:150] 
-            
-            pairs = [(q, h["text"] or "") for h in candidates]
-            scores = self.reranker.predict(pairs)
-            for h, s in zip(candidates, scores):
-                h["score"] = float(s)
-            
-            candidates.sort(key=lambda x: x["score"], reverse=True)
-            
-            # 최종 그룹핑
-            final_res = self._apply_family_grouping(candidates)
-            return final_res[:k]
-        
-        else:
-            merged_candidates.sort(key=lambda x: x["score"], reverse=True)
-            return merged_candidates[:k]
+# ---------------------------------------------------------
+# 테스트 코드
+# ---------------------------------------------------------
+if __name__ == "__main__":
+    print(f"BASE_URL: {LLM_BASE_URL}")
+    test_q = "하도급대금 직접지급 요건은?"
+    
+    # 검색 테스트
+    docs = search_docs(test_q, k=3)
+    print(f"검색된 문서: {len(docs)}건")
+    
+    # 답변 생성 테스트
+    print("답변 생성 중...")
+    ans = generate_answer(test_q, docs)
+    print("="*50)
+    print(ans)
+    print("="*50)

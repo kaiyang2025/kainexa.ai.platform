@@ -14,7 +14,7 @@ import pandas as pd
 
 # ---------------------------- 1. 설정 및 로그인 정보 ----------------------------
 # [보안] 하드코딩된 아이디/비밀번호 (원하는 값으로 변경하세요)
-ADMIN_USER = "kainexa"
+ADMIN_USER = "kangwon"
 ADMIN_PASS = "1234"
 
 API_DEFAULT = os.environ.get("API_URL", "http://localhost:8000")
@@ -22,7 +22,7 @@ API = st.secrets.get("API_URL", API_DEFAULT)
 
 # 페이지 설정은 무조건 최상단에 위치해야 합니다.
 st.set_page_config(
-    page_title="건설 법령 AI 가이드",
+    page_title="건설 법령 Copilot",
     page_icon="🏗️",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -61,7 +61,7 @@ def login():
     
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.markdown("<h1 style='text-align: center;'>🔐 KAINEXA Access</h1>", unsafe_allow_html=True)
+        st.markdown("<h1 style='text-align: center;'>🔐 강원대학교 Access</h1>", unsafe_allow_html=True)
         st.info("관계자 외 접근이 제한된 시스템입니다.")
         
         with st.form("login_form"):
@@ -106,7 +106,7 @@ def main_app():
             gen_model = st.text_input("모델명", value="gpt-4o-mini")
 
     # --- 메인 컨텐츠 ---
-    st.markdown('<div class="main-title">🏗️ 건설 법령 AI 가이드</div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-title">🏗️ 건설 법령 Copilot </div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-title">건설산업기본법 및 하도급법 관련 질문을 입력하세요.</div>', unsafe_allow_html=True)
 
     with st.form("search_form"):
