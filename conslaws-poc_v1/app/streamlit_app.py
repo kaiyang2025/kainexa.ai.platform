@@ -102,8 +102,8 @@ def main_app():
             rerank_val = st.checkbox("리랭크 적용", value=True)
             cand_factor_val = st.slider("후보군 배수", 1.0, 5.0, 2.0, 0.1)
             st.divider()
-            gen_backend = st.selectbox("생성 백엔드", ["openai", "dummy"], index=0)
-            gen_model = st.text_input("모델명", value="gpt-4o-mini")
+            gen_backend = st.selectbox("생성 백엔드", ["openai", "gpt-oss-120b"], index=0)
+            gen_model = st.text_input("모델명", value="openai/gpt-oss-120b")
 
     # --- 메인 컨텐츠 ---
     st.markdown('<div class="main-title">🏗️ 건설 법령 Copilot </div>', unsafe_allow_html=True)
