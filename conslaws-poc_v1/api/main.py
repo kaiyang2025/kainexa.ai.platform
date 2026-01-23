@@ -1,88 +1,66 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from typing import List
-from .models import SearchResponse, SearchHit, AnswerRequest, AnswerResponse, Citation
-from .search_utils import Retriever
-from .config import SYSTEM_PROMPT, GEN_BACKEND, GEN_MODEL
-import os
+# -*- coding: utf-8 -*-
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from typing import List, Optional
+import time
 
-try:
-    from openai import OpenAI
-except Exception:
-    OpenAI = None
+# 변경된 search_utils에서 필요한 함수들만 임포트
+from .search_utils import search_docs, generate_answer
 
-app = FastAPI(title="Construction-Law-RAG-POC API", version="0.2.1")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app = FastAPI(title="Construction Law RAG API")
 
-retriever = Retriever()
+# 요청 데이터 모델 (Streamlit에서 보내는 데이터와 일치)
+class QueryRequest(BaseModel):
+    query: str
+    k: int = 5
+    rerank: bool = True
+    cand_factor: float = 2.0
+    include_context: bool = True
+    gen_backend: str = "custom"  # 'openai' or 'dummy' or 'custom'
+    gen_model: str = "openai/gpt-oss-120b"
 
-def build_prompt(query: str, contexts: List[dict]):
-    header = SYSTEM_PROMPT.strip()
-    ctx_lines = []
-    for c in contexts:
-        # [수정] law_name이나 clause_id가 None일 경우 대비
-        law = c.get('law_name') or "법령"
-        clause = c.get('clause_id') or ""
-        badge = f"[{law} {clause}]"
-        
-        # [수정] ★ 핵심 에러 수정: text가 None이면 빈 문자열로 처리
-        raw_text = c.get("text") or "" 
-        snippet = raw_text.strip().replace("\n", " ")
-        
-        ctx_lines.append(f"- {badge} {snippet}")
-    ctx = "\n".join(ctx_lines)
-    return f"""{header}
-
-사용자 질문: {query}
-
-컨텍스트:
-{ctx}
-
-위 규칙을 따라 한국어로 간결하게 답변하시오.
-"""
-
-def call_llm(prompt: str, backend: str, model: str) -> str:
-    backend = backend or GEN_BACKEND
-    model = model or GEN_MODEL
-    if backend == "openai" and OpenAI is not None and os.getenv("OPENAI_API_KEY"):
-        client = OpenAI()
-        resp = client.chat.completions.create(
-            model=model,
-            messages=[{"role":"system","content":"You are a helpful assistant."},
-                      {"role":"user","content":prompt}],
-            temperature=0.1,
-        )
-        return resp.choices[0].message.content
-    return "※ 데모용(dummy): 검색 문맥 기반으로 요약 답변을 제공합니다.\n" + \
-           "\n".join([line for line in prompt.splitlines()[:10]])
-
-@app.get("/health")
-def health():
-    return {"ok": True}
-
-@app.get("/search", response_model=SearchResponse)
-def search(q: str, k: int = 8, rerank: bool = True, cand_factor: float = 1.0):
-    """
-    cand_factor: 리랭커에 태울 후보 폭 (k의 배수). 예) 2.0 => Top-2k 리랭크
-    """
-    hits = retriever.search(q, rerank=rerank, k=k, cand_factor=cand_factor)        
-    results = [SearchHit(**h) for h in hits]
-    return SearchResponse(query=q, results=results)
+# 응답 데이터 모델
+class AnswerResponse(BaseModel):
+    answer: str
+    contexts: List[dict] = []
+    latency: float = 0.0
 
 @app.post("/answer", response_model=AnswerResponse)
-def answer(req: AnswerRequest):
-    # req.cand_factor가 None이면 1.0으로 처리
-    cf = req.cand_factor if getattr(req, "cand_factor", None) is not None else 1.0
-    hits = retriever.search(req.query, rerank=req.rerank, k=req.k, cand_factor=cf)
-    prompt = build_prompt(req.query, hits)
-    text = call_llm(prompt, req.gen_backend, req.gen_model)
+async def get_answer(req: QueryRequest):
+    start_time = time.time()
     
-    # [수정] Citation 생성 시에도 None 체크
-    cits = []
-    for h in hits:
-        law = h.get("law_name") or "Unknown"
-        clause = h.get("clause_id") or ""
-        cits.append(Citation(law=law, clause_id=clause))
+    try:
+        # 1. 문서 검색 (search_utils.py의 함수 호출)
+        # Streamlit에서 요청한 k개수만큼 검색
+        contexts = search_docs(
+            query=req.query,
+            k=req.k,
+            rerank=req.rerank,
+            cand_factor=req.cand_factor
+        )
+
+        # 2. 답변 생성 (search_utils.py의 함수 호출)
+        # 내부 LLM 서버(gpt-oss-120b)를 사용하여 답변 생성
+        answer_text = generate_answer(
+            query=req.query,
+            contexts=contexts,
+            backend=req.gen_backend,
+            model=req.gen_model
+        )
         
-    contexts = hits if req.include_context else None
-    return AnswerResponse(answer=text, citations=cits, contexts=contexts)
+        elapsed = time.time() - start_time
+        
+        return AnswerResponse(
+            answer=answer_text,
+            contexts=contexts if req.include_context else [],
+            latency=elapsed
+        )
+
+    except Exception as e:
+        print(f"[API Error] {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+if __name__ == "__main__":
+    import uvicorn
+    # 로컬 테스트용 실행
+    uvicorn.run(app, host="0.0.0.0", port=8000)
