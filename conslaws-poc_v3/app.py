@@ -4,90 +4,124 @@ import pandas as pd
 import mock_data
 import time
 
-st.set_page_config(page_title="Kainexa | Dispute OS", layout="wide")
+# --- 1. 페이지 설정 및 테마 ---
+st.set_page_config(page_title="Kainexa Dispute OS", layout="wide")
 
-# --- 전문적인 UI/UX 스타일링 ---
 st.markdown("""
 <style>
-    /* 리스크 대시보드 카드 스타일 */
-    .metric-card { background-color: #f8f9fa; border-radius: 10px; padding: 20px; border-top: 5px solid #007bff; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    /* ChatGPT 스타일 채팅창 */
+    .stChatMessage { background-color: transparent !important; }
     /* 타임라인 스타일 */
-    .timeline-item { border-left: 3px solid #ddd; padding-left: 20px; margin-bottom: 20px; position: relative; }
-    .timeline-dot { position: absolute; left: -9px; top: 5px; width: 15px; height: 15px; border-radius: 50%; background: #007bff; }
+    .timeline-card { border-left: 3px solid #007bff; padding-left: 15px; margin-bottom: 15px; }
+    .gap-alert { color: #dc3545; font-weight: bold; background: #fff5f5; padding: 5px; border-radius: 4px; }
+    /* 우측 패널 스타일 */
+    .right-panel { background-color: #fcfcfc; padding: 20px; border-radius: 10px; border: 1px solid #eee; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 상태 관리 ---
+# --- 2. 상태 관리 ---
 if "messages" not in st.session_state:
-    st.session_state.messages = mock_data.get_chat_history()
+    st.session_state.messages = [{"role": "assistant", "content": "반갑습니다. 분석할 프로젝트를 선택하거나 새로운 분쟁 건을 생성해주세요."}]
+if "project_selected" not in st.session_state:
+    st.session_state.project_selected = None
 
-# --- 사이드바: 3. Risk Dashboard (미니 버전) ---
+# --- 3. 사이드바 (프로젝트 및 문서함 관리) ---
 with st.sidebar:
-    st.image("https://via.placeholder.com/200x60?text=KAINEXA", use_container_width=True)
-    st.title("🚩 Real-time Risk")
-    metrics = mock_data.get_risk_metrics()
+    st.markdown("### 🏗️ Kainexa Workspace")
     
-    st.metric("Win Probability", f"{metrics['win_probability']}%", "+5%")
-    st.metric("Total Claim", metrics['total_claim_amount'])
-    
-    if metrics['overall_risk'] == "High":
-        st.error("⚠️ Overall Risk: HIGH (Evidence Missing)")
+    # 1. 프로젝트 생성 및 선택
+    project_name = st.selectbox("프로젝트 선택", ["+ 새 프로젝트 생성"] + mock_data.get_project_list())
+    if project_name != "+ 새 프로젝트 생성":
+        st.session_state.project_selected = project_name
     
     st.markdown("---")
-    uploaded = st.file_uploader("Upload Evidence", type=['pdf'])
-
-# --- 메인 화면: 3개 탭 구성 ---
-st.title("Dispute Readiness Workspace")
-tab1, tab2, tab3 = st.tabs(["📊 Risk Dashboard & Timeline", "💬 Interactive Copilot", "📄 Evidence Pack"])
-
-# --- Tab 1: Risk Dashboard & Visual Timeline ---
-with tab1:
-    col1, col2 = st.columns([1, 1])
     
-    with col1:
-        st.subheader("🚩 Risk Analysis")
-        st.info("💡 **AI Insight**: 7월 15일 구간의 '운반일지'가 보완되면 승소 확률이 92%로 상승합니다.")
-        
-        # 상세 리스크 모니터링
-        chart_data = pd.DataFrame({"Category": ["Contract", "Evidence", "Timeline", "Precedent"], "Score": [90, 40, 70, 85]})
-        st.bar_chart(chart_data.set_index("Category"))
-
-    with col2:
-        st.subheader("📍 Visual Evidence Timeline")
-        # 시각적 타임라인 구현
-        for item in mock_data.get_visual_timeline():
-            st.markdown(f"""
-            <div class="timeline-item">
-                <div class="timeline-dot" style="background: {item['color']};"></div>
-                <b style="color: {item['color']};">{item['date']}</b> - <b>{item['title']}</b><br>
-                <small>{item['desc']}</small>
-            </div>
-            """, unsafe_allow_html=True)
-
-# --- Tab 2: 1. Interactive Copilot ---
-with tab2:
-    st.subheader("🤖 Interactive Legal Copilot")
-    st.caption("사건 맥락을 이해하는 AI와 대화하며 서면을 완성하세요.")
+    # 2. 문서함 (공유 vs 개인)
+    st.subheader("📁 Document Library")
+    lib_tabs = st.tabs(["공유(Shared)", "개인(Private)"])
     
-    # 채팅 인터페이스
-    for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.write(msg["content"])
-
-    if prompt := st.chat_input("이 사건에 대해 궁금한 점을 물어보세요..."):
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.write(prompt)
+    with lib_tabs[0]:
+        st.caption("계약서, 공사일지, 회의록 (FIDIC)")
+        st.checkbox("FIDIC_Red_Book.pdf", value=True)
+        st.checkbox("Daily_Logs_July.xlsx", value=True)
         
-        with st.chat_message("assistant"):
-            with st.spinner("법률 온톨로지 탐색 중..."):
-                time.sleep(1)
-                response = "검토하신 '집중호우' 사유는 도급계약서 제25조에 따른 면책 요건을 충족합니다. 관련 증거 3건을 포함하여 서면 초안에 반영해두었습니다."
-                st.write(response)
-                st.session_state.messages.append({"role": "assistant", "content": response})
+    with lib_tabs[1]:
+        st.caption("현장 사진, 개인 메모, 미공식 기록")
+        st.file_uploader("파일 추가", type=['pdf', 'jpg', 'png'])
+        st.checkbox("현장_사진_0712.jpg")
 
-# --- Tab 3: Evidence Pack (기존 산출물) ---
-with tab3:
-    st.subheader("📄 Evidence Pack & Draft")
-    st.markdown(mock_data.get_advanced_draft())
-    st.button("📥 최종 Evidence Pack 다운로드 (PDF)")
+# --- 4. 메인 화면 레이아웃 (2-Pane) ---
+if st.session_state.project_selected:
+    col_chat, col_insight = st.columns([1.2, 1])
+
+    # --- Left: ChatGPT 스타일 대화창 ---
+    with col_chat:
+        st.subheader(f"💬 {st.session_state.project_selected}")
+        
+        # 채팅 메시지 표시
+        for msg in st.session_state.messages:
+            with st.chat_message(msg["role"]):
+                st.write(msg["content"])
+
+        # 채팅 입력
+        if prompt := st.chat_input("사건에 대해 물어보거나 증거 분석을 지시하세요..."):
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.write(prompt)
+
+            with st.chat_message("assistant"):
+                with st.spinner("에이전트 협업 분석 중..."):
+                    time.sleep(1)
+                    # 시나리오 기반 답변
+                    if "증거" in prompt or "확률" in prompt:
+                        response = "현재 7월 15일자 증거가 누락되어 승소 확률이 65%로 제한적입니다. 개인 문서함의 '운반일지'를 추가 분석에 포함할까요?"
+                    else:
+                        response = f"{st.session_state.project_selected}에 대한 법리 검토를 진행 중입니다. 우측 타임라인에서 누락된 Red Flag 구간을 확인해주세요."
+                    st.write(response)
+                    st.session_state.messages.append({"role": "assistant", "content": response})
+
+    # --- Right: 가변형 Insight 패널 (Risk & Timeline) ---
+    with col_insight:
+        with st.container():
+            st.markdown('<div class="right-panel">', unsafe_allow_html=True)
+            
+            # 4. Risk Dashboard
+            risk = mock_data.get_risk_data(st.session_state.project_selected)
+            st.subheader("🚩 Risk Dashboard")
+            c1, c2 = st.columns(2)
+            c1.metric("Win Probability", f"{risk['score']}%")
+            c2.write(f"**Status:** {risk['status']}")
+            
+            if risk['missing_docs']:
+                st.markdown(f'<p class="gap-alert">⚠️ 누락 증거: {", ".join(risk["missing_docs"])}</p>', unsafe_allow_html=True)
+
+            st.markdown("---")
+
+            # 3. Visual Evidence Timeline
+            st.subheader("📍 Evidence Timeline")
+            timeline = mock_data.get_timeline_data(st.session_state.project_selected)
+            for item in timeline:
+                color = "#dc3545" if item['status'] == "Missing" else "#28a745"
+                st.markdown(f"""
+                <div class="timeline-card" style="border-left-color: {color};">
+                    <small>{item['date']}</small> | <b>{item['event']}</b><br>
+                    <span style="font-size: 0.8rem; color: #666;">Type: {item['type']} | Status: {item['status']}</span>
+                </div>
+                """, unsafe_allow_html=True)
+
+            st.markdown("---")
+            
+            # 6. 최종 산출물 (Template Selector)
+            st.subheader("📄 Submission Package")
+            template = st.selectbox("출력 템플릿 선택", mock_data.get_templates())
+            if st.button("Evidence Pack 생성 및 제출 패키징"):
+                with st.status("패키징 생성 중..."):
+                    time.sleep(1.5)
+                    st.write("서면 초안 작성 완료")
+                    st.write("증거 인덱싱(Citation) 완료")
+                st.success("✅ 제출 패키지(ZIP)가 준비되었습니다.")
+                st.download_button("다운로드", data="file_content", file_name="Kainexa_Submission_Pack.zip")
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+else:
+    st.info("왼쪽 사이드바에서 프로젝트를 선택하거나 새로 생성하여 분석을 시작하세요.")
