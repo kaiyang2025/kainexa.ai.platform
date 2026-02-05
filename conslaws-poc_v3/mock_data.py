@@ -1,6 +1,32 @@
 # mock_data.py
 import pandas as pd
 
+# [NEW] 리스크 대시보드 데이터
+def get_risk_metrics():
+    return {
+        "overall_risk": "High",
+        "win_probability": 85,
+        "missing_evidences": 2,
+        "total_claim_amount": "₩2.4B"
+    }
+    
+# [NEW] 코파일럿 대화 데이터
+def get_chat_history():
+    return [
+        {"role": "assistant", "content": "안녕하세요, Kainexa Copilot입니다. 강원대 도서관 프로젝트의 '7월 공기지연' 건에 대해 분석을 완료했습니다. 어떤 도움이 필요하신가요?"},
+        {"role": "user", "content": "발주처가 공기연장(EOT)을 거부할 경우, 가장 강력한 반박 논리는 무엇인가요?"},
+        {"role": "assistant", "content": "도급계약서 제25조와 기상 데이터를 결합했을 때, '도로 침수로 인한 자재 반입 불가'가 가장 강력한 면책 사유입니다. 이를 바탕으로 반박 서면 초안을 작성해 드릴까요?"}
+    ]
+
+# [NEW] 시각적 타임라인 데이터
+def get_visual_timeline():
+    return [
+        {"date": "07-10", "title": "호우주의보 발령", "status": "Done", "desc": "기상청 데이터 연동 완료", "color": "#28a745"},
+        {"date": "07-12", "title": "현장 침수 피해", "status": "Done", "desc": "현장 사진 4장 매핑", "color": "#28a745"},
+        {"date": "07-15", "title": "자재 반입 지연", "status": "Risk", "desc": "증거 문서 누락됨 (입증 필요)", "color": "#dc3545"},
+        {"date": "07-21", "title": "작업 재개", "status": "Done", "desc": "공문 Out-101 확인", "color": "#28a745"},
+    ]    
+    
 # 1. 초기 타임라인 (증거 공백 존재)
 def get_initial_timeline():
     return [
@@ -33,8 +59,6 @@ def get_element_matrix():
 def get_advanced_draft():
     return """
     **[지체상금 면책 청구서 초안]**
-    
-    1. 2024년 7월 집중호우[[Doc:기상데이터]] 및 이에 따른 현장 침수로 공사가 12일간 중단되었습니다.
-    2. 도급계약서 제25조(불가항력)[[Clause:Art.25]]에 의거하여 해당 기간의 지체상금 면책을 청구합니다.
-    3. AI 분석 결과: 추가 확보된 운반일지[[Doc:운반일지]]를 통해 도로 침수로 인한 자재 반입 불가능 사실이 입증되어 승소 확률이 **88%**로 상향되었습니다.
+    본 시공사는 2024년 7월 발생한 기록적 폭우[[Doc:기상데이터]] 및 이에 따른 현장 침수로 공사가 12일간 중단되었습니다.
+    도급계약서 제25조(불가항력)[[Clause:Art.25]]에 의거하여 해당 기간의 지체상금 면책을 청구합니다.
     """
